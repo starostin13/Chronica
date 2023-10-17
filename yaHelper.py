@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
+from pickle import NONE
+from socket import timeout
 import credentials
 import random
 from statistics import median
@@ -20,8 +22,16 @@ def getPhoto():
     print(y.check_token())
 
     # Get disk information
-    print(y.get_disk_info())
-    files = (list(y.get_files(media_type="image")))
-    wallpaperInfo = (list(y.listdir("/Photo/Саночки")))
+    print("Your already use " + y.get_disk_info().used_space)
+        
+    subfolders = (list(y.listdir(credentials.main_dirrectory)))
 
-    return random.choice(wallpaperInfo)
+    return digToSubfolder(random.choice(subfolders))
+
+def digToSubfolder(item):
+    if item.type == "dir":
+        rand = random.choice(list(y.listdir(item.path)))
+        return digToSubfolder(rand)
+    if item.media_type == "image":
+        return item;
+    return NONE
