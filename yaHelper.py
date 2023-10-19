@@ -22,7 +22,7 @@ def getPhoto():
     print(y.check_token())
 
     # Get disk information
-    print("Your already use " + y.get_disk_info().used_space)
+    print("Your already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
         
     subfolders = (list(y.listdir(credentials.main_dirrectory)))
 

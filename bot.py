@@ -1,6 +1,10 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# vim:fileencoding=utf-8
 import telebot
 import credentials
 from yaHelper import getPhoto
+from stringHelper import numberToMonthNameRu
 
 bot_token = credentials.bot_token
 
@@ -13,7 +17,13 @@ def send_welcome(message):
     
     try:
         print("Sending " + photo.name)
-        bot.send_photo(credentials.chat_id, photo.file)
+        photo_path_splited = photo.path.split("/")
+        if photo.photoslice_time is None:
+            comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
+        else:
+            comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
+        bot.send_photo(credentials.chat_id, photo.file, caption = comment)
+        
     except Exception as exc:
         bot.send_message(credentials.chat_id, f"Unexpected {exc=}")
     
