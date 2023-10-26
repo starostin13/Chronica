@@ -13,6 +13,13 @@ import statistics
 
 y = yadisk.YaDisk(token=credentials.yandex_token)
     
+
+def getLastUpdatedFolder():
+    if y.check_token():
+        folders = (list(y.listdir(credentials.main_dirrectory)))
+        folders.sort(key=lambda dt: dt.modified)
+        return folders[-1].name
+
 def getPhoto():
     
     # or

@@ -4,14 +4,23 @@
 import os
 import requests
 import telebot
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import credentials
-from yaHelper import getPhoto
+from yaHelper import getLastUpdatedFolder, getPhoto
 from stringHelper import numberToMonthNameRu
 import shutil
 
 bot_token = credentials.bot_token
 
 bot = telebot.TeleBot(bot_token)
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    print(call.data)
+    #if call.data == "cb_yes":
+    #    bot.answer_callback_query(call.id, "Answer is Yes")
+
 
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
@@ -36,6 +45,7 @@ def send_welcome(message):
     except Exception as exc:
         bot.send_message(credentials.chat_id, f"Unexpected {exc=}")
 
+
 @bot.message_handler(content_types=['image', 'photo'])
 def echo_all(message):
     print("Saving photo " + message.caption + " locally")
@@ -47,9 +57,17 @@ def echo_all(message):
         with open(dst + message.caption + ".jpg", 'wb') as f:
             shutil.copyfileobj(r.raw, f)
 
-    bot.reply_to(message, "Мне это сохранить что ли?")    
+    bot.reply_to(message, "Мне это сохранить что ли?")
     
-    #shutil.copy(src, dst)
+    lastUpdatedFolder = getLastUpdatedFolder()
+
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 2
+    markup.add(InlineKeyboardButton(lastUpdatedFolder, callback_data=lastUpdatedFolder),
+                               InlineKeyboardButton("Не нада", callback_data="decline"))
+
+    bot.reply_to(message, text="Куда сохранять-то?", reply_markup=markup)
+
     for entry in os.listdir(dst):
         if os.path.isfile(os.path.join(dst, entry)):
             print(entry)
@@ -65,6 +83,7 @@ def echo_all(message):
         bot.reply_to(message, "Отсоси у тракториста")
         
     #bot.reply_to(message, message.text)
+
 
 @bot.message_handler(commands=['test'])
 def echo_test(message):
