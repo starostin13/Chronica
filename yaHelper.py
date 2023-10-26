@@ -32,6 +32,6 @@ def digToSubfolder(item):
     if item.type == "dir":
         rand = random.choice(list(y.listdir(item.path)))
         return digToSubfolder(rand)
-    if item.media_type == "image":
+    if item.media_type == "image" or item.media_type == "video":
         return item;
     return NONE
