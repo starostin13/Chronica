@@ -6,20 +6,25 @@ import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import credentials
-from yaHelper import getLastUpdatedFolder, getPhoto
+from yaHelper import createFolder, getLastUpdatedFolder, getPhoto, saveFileTo
 from stringHelper import numberToMonthNameRu
 import shutil
 
 bot_token = credentials.bot_token
-
 bot = telebot.TeleBot(bot_token)
-
+dst = '/temp/'
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    print(call.data)
-    #if call.data == "cb_yes":
-    #    bot.answer_callback_query(call.id, "Answer is Yes")
+    print("Answer from inline is " + call.data)
+    for entry in os.listdir(dst):
+        if os.path.isfile(os.path.join(dst, entry)):
+            if call.data == "new":
+                newFolderName = createFolder()
+                saveFileTo(os.path.join(dst, entry), newFolderName + "/" + entry)
+            if call.data != "decline":
+                saveFileTo(os.path.join(dst, entry), call.data + "/" + entry)
+            os.remove(os.path.join(dst, entry))
 
 
 @bot.message_handler(commands=['start', 'hello'])
@@ -48,13 +53,13 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['image', 'photo'])
 def echo_all(message):
-    print("Saving photo " + message.caption + " locally")
-    file = bot.get_file_url(message.photo[-1].file_id)
-    dst = '/temp/'
+    file = bot.get_file_url(message.photo[-1].file_id)    
+    uploadedFileName = message.caption if message.caption != None else file.split('/')[-1]
+    print("Saving photo " + uploadedFileName + " locally")
     
     # writing to a custom file
     with requests.get(file, stream=True) as r:
-        with open(dst + message.caption + ".jpg", 'wb') as f:
+        with open(dst + uploadedFileName, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
 
     bot.reply_to(message, "Мне это сохранить что ли?")
@@ -64,7 +69,8 @@ def echo_all(message):
     markup = InlineKeyboardMarkup()
     markup.row_width = 2
     markup.add(InlineKeyboardButton(lastUpdatedFolder, callback_data=lastUpdatedFolder),
-                               InlineKeyboardButton("Не нада", callback_data="decline"))
+                               InlineKeyboardButton("Не нада", callback_data="decline"),
+                               InlineKeyboardButton("Новое", callback_data="new"))
 
     bot.reply_to(message, text="Куда сохранять-то?", reply_markup=markup)
 

@@ -1,17 +1,30 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
-from pickle import NONE
-from socket import timeout
+from datetime import date
+import os
+from pickle import NONE, TRUE
 import credentials
 import random
-from statistics import median
 import yadisk
-from yadisk.api import FilesRequest
-from yadisk.yadisk import _apply_default_args
-import statistics
+
+from stringHelper import get_random_string
 
 y = yadisk.YaDisk(token=credentials.yandex_token)
+
+
+def createFolder():
+    newFolderName = get_random_string(date.today().day)
+    y.mkdir(credentials.main_dirrectory + '/' + newFolderName)
+    return newFolderName
+
+def digToSubfolder(item):
+    if item.type == "dir":
+        rand = random.choice(list(y.listdir(item.path)))
+        return digToSubfolder(rand)
+    if item.media_type == "image" or item.media_type == "video":
+        return item;
+    return NONE
     
 
 def getLastUpdatedFolder():
@@ -19,6 +32,7 @@ def getLastUpdatedFolder():
         folders = (list(y.listdir(credentials.main_dirrectory)))
         folders.sort(key=lambda dt: dt.modified)
         return folders[-1].name
+
 
 def getPhoto():
     
@@ -35,10 +49,8 @@ def getPhoto():
 
     return digToSubfolder(random.choice(subfolders))
 
-def digToSubfolder(item):
-    if item.type == "dir":
-        rand = random.choice(list(y.listdir(item.path)))
-        return digToSubfolder(rand)
-    if item.media_type == "image" or item.media_type == "video":
-        return item;
-    return NONE
+
+def saveFileTo(localpath, yandexFolder):
+    if(y.check_token()):
+        if(os.path.isfile(localpath)):
+            y.upload(localpath, credentials.main_dirrectory + "/" + yandexFolder, overwrite=TRUE)

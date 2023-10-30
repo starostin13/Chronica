@@ -1,3 +1,6 @@
+import random
+import string
+
 def numberToMonthNameRu(n):
     match n:
         case 1: return ("январе")
@@ -12,3 +15,10 @@ def numberToMonthNameRu(n):
         case 10: return ("октябре")
         case 11: return ("ноябре")
         case 12: return ("декабре")
+        
+
+def get_random_string(length):
+    # choose from all lowercase letter
+    letters = string.ascii_lowercase
+    result_str = ''.join(random.choice(letters) for i in range(length))
+    return result_str
