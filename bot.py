@@ -2,7 +2,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
+from datetime import datetime, timedelta
 import os
+from random import randrange
+import sched
+import time
+from threading import Thread
 import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,6 +19,7 @@ import shutil
 bot_token = credentials.bot_token
 bot = telebot.TeleBot(bot_token)
 dst = '/temp/'
+schedule = sched.scheduler(time.time, time.sleep)
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -30,7 +36,7 @@ def callback_query(call):
 
 
 @bot.message_handler(commands=['start', 'hello'])
-def send_welcome(message):
+def send_welcome():
     photo = getPhoto()
 
     try:
@@ -126,4 +132,30 @@ def echo_test(message):
     print("TEST: " + message.text)
     #bot.send_animation()
 
-bot.infinity_polling()
+
+def main_loop():
+    scheduledThread = Thread(target=schedule_random_photo)
+    scheduledThread.start()
+    
+    bot.infinity_polling()
+
+
+def dump_prin():
+    send_welcome()
+    now = datetime.now()
+    skip_time = randrange(1,24)
+    next_in = now + timedelta(minutes=skip_time)
+    print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S"))
+    schedule.enter(skip_time * 3600,1, dump_prin, ())
+
+
+def schedule_random_photo():
+    now = datetime.now()
+    skip_time = randrange(1,24)
+    next_in = now + timedelta(minutes=skip_time)
+    print("Schedulling. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S"))
+    schedule.enter(skip_time * 3600,1, dump_prin, ())
+    schedule.run()
+
+
+main_loop()
