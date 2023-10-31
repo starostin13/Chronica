@@ -1,3 +1,4 @@
+#!/usr/bin/python3.11
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
@@ -31,7 +32,7 @@ def callback_query(call):
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
     photo = getPhoto()
-    
+
     try:
         print("Sending " + photo.file)
         photo_path_splited = photo.path.split("/")
@@ -39,7 +40,7 @@ def send_welcome(message):
             comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
         else:
             comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
-        
+
         if photo.media_type == "image":
             bot.send_photo(credentials.chat_id, photo.file, caption = comment)
         if photo.media_type == "video":
@@ -47,7 +48,7 @@ def send_welcome(message):
                 bot.send_animation(credentials.chat_id, photo.file, caption = comment)
             else:
                 bot.send_video(credentials.chat_id, photo.file, caption = comment)
-        
+
     except Exception as exc:
         bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + "sUnexpected " + exc.description)
 
@@ -63,7 +64,7 @@ def echo_video(message):
             with open(dst + uploadedFileName, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
         bot.reply_to(message, "Мне это сохранить что ли?")
-    
+
         lastUpdatedFolder = getLastUpdatedFolder()
 
         markup = InlineKeyboardMarkup()
@@ -82,17 +83,17 @@ def echo_video(message):
 
 @bot.message_handler(content_types=['image', 'photo'])
 def echo_photo(message):
-    file = bot.get_file_url(message.photo[-1].file_id)    
+    file = bot.get_file_url(message.photo[-1].file_id)
     uploadedFileName = message.caption if message.caption != None else file.split('/')[-1]
     print("Saving photo " + uploadedFileName + " locally")
-    
+
     # writing to a custom file
     with requests.get(file, stream=True) as r:
         with open(dst + uploadedFileName, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
 
     bot.reply_to(message, "Мне это сохранить что ли?")
-    
+
     lastUpdatedFolder = getLastUpdatedFolder()
 
     markup = InlineKeyboardMarkup()
@@ -106,17 +107,17 @@ def echo_photo(message):
     for entry in os.listdir(dst):
         if os.path.isfile(os.path.join(dst, entry)):
             print(entry)
-    
+
 
 @bot.message_handler(func=lambda msg: True)
 def echo_all(message):
     print(message.text)
     if "да" == message.text:
         bot.reply_to(message, "хуй на")
-        
+
     if "300" == message.text:
         bot.reply_to(message, "Отсоси у тракториста")
-        
+
     #bot.reply_to(message, message.text)
 
 
