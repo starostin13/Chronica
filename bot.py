@@ -12,7 +12,7 @@ import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import credentials
-from yaHelper import createFolder, getLastUpdatedFolder, getPhoto, saveFileTo
+from yaHelper import createFolder, downloadFile, getLastUpdatedFolder, getPhoto, saveFileTo
 from stringHelper import numberToMonthNameRu
 import shutil
 
@@ -36,7 +36,7 @@ def callback_query(call):
 
 
 @bot.message_handler(commands=['start', 'hello'])
-def send_welcome():
+def send_welcome(message):
     photo = getPhoto()
 
     try:
@@ -51,12 +51,14 @@ def send_welcome():
             bot.send_photo(credentials.chat_id, photo.file, caption = comment)
         if photo.media_type == "video":
             if "gp3" in photo.name or "mp4" in photo.name:
-                bot.send_animation(credentials.chat_id, photo.file, caption = comment)
+                downloadFile(photo.file, photo.name)
+                bot.send_video(credentials.chat_id, open(dst + '/' + photo.name, 'rb'), caption = comment)
+                os.remove(dst + '/' + photo.name)
             else:
                 bot.send_video(credentials.chat_id, photo.file, caption = comment)
 
     except Exception as exc:
-        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + "sUnexpected " + exc.description)
+        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + " .Unexpected " + exc.description)
 
 
 @bot.message_handler(content_types=['video'])
@@ -141,11 +143,11 @@ def main_loop():
 
 
 def dump_prin():
-    send_welcome()
+    send_welcome("dump message")
     now = datetime.now()
     skip_time = randrange(1,24)
     next_in = now + timedelta(minutes=skip_time)
-    print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S"))
+    print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + "after " + str(skip_time) + " hours")
     schedule.enter(skip_time * 3600,1, dump_prin, ())
 
 
@@ -153,7 +155,7 @@ def schedule_random_photo():
     now = datetime.now()
     skip_time = randrange(1,24)
     next_in = now + timedelta(minutes=skip_time)
-    print("Schedulling. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S"))
+    print("Schedulling. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + "after " + str(skip_time) + " hours")
     schedule.enter(skip_time * 3600,1, dump_prin, ())
     schedule.run()
 

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
 from datetime import date
+from fileinput import filename
 import os
 from pickle import NONE, TRUE
 import credentials
@@ -9,6 +10,8 @@ import random
 import yadisk
 
 from stringHelper import get_random_string
+
+dst = '/temp/'
 
 y = yadisk.YaDisk(token=credentials.yandex_token)
 
@@ -25,6 +28,10 @@ def digToSubfolder(item):
     if item.media_type == "image" or item.media_type == "video":
         return item;
     return NONE
+
+
+def downloadFile(url, fileName):
+    y.download_by_link(url, dst + '/' + fileName)
     
 
 def getLastUpdatedFolder():
