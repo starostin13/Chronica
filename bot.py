@@ -16,7 +16,7 @@ from yaHelper import createFolder, downloadFile, getLastUpdatedFolder, getPhoto,
 from stringHelper import numberToMonthNameRu
 import shutil
 
-bot_token = credentials.bot_tokenq
+bot_token = credentials.bot_token
 bot = telebot.TeleBot(bot_token)
 dst = '/temp/'
 schedule = sched.scheduler(time.time, time.sleep)
