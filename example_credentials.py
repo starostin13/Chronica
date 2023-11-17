@@ -1,5 +1,5 @@
 yandex_token = "yandex_token"
-bot_token = "bot_token"
+bot_token = "telegram_bot_token"
 chat_id = "111"
 main_dirrectory="/Изображения/"
 temp_folder="/temp/"
