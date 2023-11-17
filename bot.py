@@ -18,7 +18,7 @@ import shutil
 
 bot_token = credentials.bot_token
 bot = telebot.TeleBot(bot_token)
-dst = '/temp/'
+dst = credentials.temp_folder
 schedule = sched.scheduler(time.time, time.sleep)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -135,7 +135,7 @@ def dump_prin():
     now = datetime.now()
     skip_time = randrange(1,24)
     next_in = now + timedelta(minutes=skip_time)
-    print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + "after " + str(skip_time) + " hours")
+    print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + " after " + str(skip_time) + " hours")
     schedule.enter(skip_time * 3600,1, dump_prin, ())
 
 
@@ -143,7 +143,7 @@ def schedule_random_photo():
     now = datetime.now()
     skip_time = randrange(1,24)
     next_in = now + timedelta(minutes=skip_time)
-    print("Schedulling. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + "after " + str(skip_time) + " hours")
+    print("Schedulling. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + " after " + str(skip_time) + " hours")
     schedule.enter(skip_time * 3600,1, dump_prin, ())
     schedule.run()
 

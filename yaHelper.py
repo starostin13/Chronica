@@ -10,7 +10,7 @@ import yadisk
 
 from stringHelper import get_random_string
 
-dst = '/temp/'
+dst = credentials.temp_folder
 
 y = yadisk.YaDisk(token=credentials.yandex_token)
 
