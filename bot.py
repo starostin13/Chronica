@@ -47,9 +47,10 @@ def send_welcome(message):
         else:
             comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
 
-        if photo.media_type == "image":
+        photoSizeMb = ((photo.size / 1000) / 1024)        
+        if photo.media_type == "image" and photoSizeMb  < 5:
             bot.send_photo(credentials.chat_id, photo.file, caption = comment)
-        if photo.media_type == "video":
+        if photo.media_type == "video" or ( photo.media_type == "image" and photoSizeMb  > 5):
             if "gp3" in photo.name or "mp4" in photo.name:
                 downloadFile(photo.file, photo.name)
                 bot.send_video(credentials.chat_id, open(dst + photo.name, 'rb'), caption = comment)
