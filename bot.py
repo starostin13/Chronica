@@ -76,7 +76,8 @@ def send_welcome(message):
                 bot.send_video(credentials.chat_id, photo.file, caption = comment)
 
     except Exception as exc:
-        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + " .Unexpected " + exc.description)
+        exceptionText = exc.description if exc.description != None else str(exc)
+        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + " .Unexpected " + exceptionText)
 
 
 @bot.message_handler(content_types=['video'])
