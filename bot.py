@@ -5,7 +5,7 @@
 from datetime import datetime, timedelta
 import os
 from random import randrange
-from PIL import Image
+from PIL import Image, ExifTags
 import sched
 import time
 from threading import Thread
@@ -52,9 +52,25 @@ def send_welcome(message):
         photoSizeMb = ((photo.size / 1000) / 1024)
         if photo.media_type == "image":
             if photoSizeMb  >= 5:
-                memorySizeRatio = photoSizeMb / 5
+                memorySizeRatio = 5 / photoSizeMb
                 downloadFile(photo.file, photo.name)
                 with  Image.open(dst + photo.name) as my_image:
+                    
+                    if hasattr(my_image, '_getexif'):
+                        exif = my_image._getexif()
+                        if exif:
+                            for tag, label in ExifTags.TAGS.items():
+                                if label == 'Orientation':
+                                    orientation = tag
+                                    break
+                            if orientation in exif:
+                                if exif[orientation] == 3:
+                                    my_image = my_image.rotate(180, expand=True)
+                                elif exif[orientation] == 6:
+                                    my_image = my_image.rotate(270, expand=True)
+                                elif exif[orientation] == 8:
+                                    my_image = my_image.rotate(90, expand=True)
+
                     # the original width and height of the image
                     image_height = float(my_image.height)
                     image_width = float(my_image.width)
@@ -68,12 +84,12 @@ def send_welcome(message):
             else:
                 bot.send_photo(credentials.chat_id, photo.file, caption = comment)
         if photo.media_type == "video":
-            if "gp3" in photo.name or "mp4" in photo.name:
+            #if "gp3" in photo.name or "mp4" in photo.name:
                 downloadFile(photo.file, photo.name)
                 bot.send_video(credentials.chat_id, open(dst + photo.name, 'rb'), caption = comment)
                 os.remove(dst + photo.name)
-            else:
-                bot.send_video(credentials.chat_id, photo.file, caption = comment)
+            #else:
+            #    bot.send_video(credentials.chat_id, photo.file, caption = comment)
 
     except Exception as exc:
         exceptionText = exc.description if exc.description != None else str(exc)
@@ -152,7 +168,7 @@ def recievingFile(file, message):
 def dump_prin():
     send_welcome("dump message")
     now = datetime.now()
-    skip_time = randrange(1,20)
+    skip_time = randrange(1,15)
     next_in = now + timedelta(minutes=skip_time)
     print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + " after " + str(skip_time) + " hours")
     schedule.enter(skip_time * 3600,1, dump_prin, ())
