@@ -52,7 +52,7 @@ def send_welcome(message):
         photoSizeMb = ((photo.size / 1000) / 1024)
         if photo.media_type == "image":
             if photoSizeMb  >= 5:
-                memorySizeRatio = 5 / photoSizeMb
+                memorySizeRatio = 2 ** (5 / photoSizeMb)
                 downloadFile(photo.file, photo.name)
                 with  Image.open(dst + photo.name) as my_image:
                     
