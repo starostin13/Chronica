@@ -52,10 +52,10 @@ def send_welcome(message):
         photoSizeMb = ((photo.size / 1000) / 1024)
         if photo.media_type == "image":
             if photoSizeMb  >= 5:
-                memorySizeRatio = 2 ** (5 / photoSizeMb)
+                memorySizeRatio = 5 / photoSizeMb
                 downloadFile(photo.file, photo.name)
                 with  Image.open(dst + photo.name) as my_image:
-                    
+
                     if hasattr(my_image, '_getexif'):
                         exif = my_image._getexif()
                         if exif:
@@ -75,7 +75,7 @@ def send_welcome(message):
                     image_height = float(my_image.height)
                     image_width = float(my_image.width)
                     #compressed the image
-                    my_image = my_image.resize((int(image_width * memorySizeRatio),int(image_height * memorySizeRatio)),PIL.Image.NEAREST)
+                    my_image = my_image.resize((int(image_width / (2 * memorySizeRatio)),int(image_height / (2 * memorySizeRatio))),PIL.Image.NEAREST)
                     #save the image
                     my_image.save(dst + 'compressed.jpg')
                 bot.send_photo(credentials.chat_id, open(dst + 'compressed.jpg', 'rb'), caption = comment)
@@ -101,7 +101,7 @@ def echo_video(message):
     try:
         file = bot.get_file_url(message.video.file_id)
         recievingFile(file, message)
-        
+
     except Exception as exc:
         bot.reply_to(message, "Не вышло: " + exc.description)
 
@@ -135,19 +135,19 @@ def echo_test(message):
 def main_loop():
     scheduledThread = Thread(target=schedule_random_photo)
     scheduledThread.start()
-    
+
     bot.infinity_polling()
 
 
-def recievingFile(file, message):    
+def recievingFile(file, message):
     uploadedFileName = message.caption if message.caption != None else file.split('/')[-1]
-    
+
     print("Saving file " + uploadedFileName + " locally")
         # writing to a custom file
     with requests.get(file, stream=True) as r:
         with open(dst + uploadedFileName, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
-            
+
     bot.reply_to(message, "Мне это сохранить что ли?")
 
     lastUpdatedFolder = getLastUpdatedFolder()
@@ -163,12 +163,12 @@ def recievingFile(file, message):
     for entry in os.listdir(dst):
         if os.path.isfile(os.path.join(dst, entry)):
             print(entry)
-    
+
 
 def dump_prin():
     send_welcome("dump message")
     now = datetime.now()
-    skip_time = randrange(1,15)
+    skip_time = randrange(1,14)
     next_in = now + timedelta(minutes=skip_time)
     print("Sending random photo. Next will be send at " + next_in.strftime("%d/%m/%Y %H:%M:%S") + " after " + str(skip_time) + " hours")
     schedule.enter(skip_time * 3600,1, dump_prin, ())
