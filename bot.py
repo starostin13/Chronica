@@ -84,16 +84,17 @@ def send_welcome(message):
             else:
                 bot.send_photo(credentials.chat_id, photo.file, caption = comment)
         if photo.media_type == "video":
-            #if "gp3" in photo.name or "mp4" in photo.name:
+            if "gp3" in photo.name or "mp4" in photo.name  or "avi" in photo.name:
                 downloadFile(photo.file, photo.name)
                 bot.send_video(credentials.chat_id, open(dst + photo.name, 'rb'), caption = comment)
                 os.remove(dst + photo.name)
-            #else:
-            #    bot.send_video(credentials.chat_id, photo.file, caption = comment)
+                #bot.send_message(credentials.chat_id, photo.file)
+            else:
+                bot.send_video(credentials.chat_id, photo.file, caption = comment)
 
     except Exception as exc:
         exceptionText = exc.description if exc.description != None else str(exc)
-        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + " .Unexpected " + exceptionText)
+        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + ". Unexpected " + exceptionText)
 
 
 @bot.message_handler(content_types=['video'])
