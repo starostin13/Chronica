@@ -43,17 +43,42 @@ def getLastUpdatedFolder():
 
 
 def getPhoto():
+    # Проверка валидности токена
+    if not y.check_token():
+        print("Invalid token")
+        return None
     
-    # or
-    #y = yadisk.YaDisk("<application-id>", "<application-secret>", "<token>")
+    # Вывод информации о занятом пространстве
+    print("You already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
 
-    # Check if the token is valid
-    print(y.check_token())
-
-    # Get disk information
-    print("Your already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
-        
-    subfolders = (list(y.listdir(credentials.main_dirrectory)))
+    # Получение текущей даты (день и месяц)
+    today = date.today()
+    today_day = today.day
+    today_month = today.month
+    
+    # Список для хранения файлов, созданных в тот же день и месяц, но в другой год
+    matching_files = []
+    
+    # Получение списка всех поддиректорий в основной директории
+    subfolders = list(y.listdir(credentials.main_dirrectory))
+    
+    # Перебор всех файлов в поддиректориях
+    for folder in subfolders:
+        files = list(y.listdir(folder.path))
+        for file in files:
+            # Проверка, является ли файл изображением или видео
+            if file.media_type in ["image", "video"]:
+                # Извлечение даты создания файла
+                created_date = file.created
+                if created_date.day == today_day and created_date.month == today_month and created_date.year != today.year:
+                    # Добавление файла в список, если дата совпадает
+                    matching_files.append(file)
+    
+    # Если найдены файлы с совпадающей датой, вернуть случайный из них
+    if matching_files:
+        return random.choice(matching_files)
+    
+    # Если не найдено ни одного подходящего файла, выполняется исходная логика
     random.shuffle(subfolders)
     return digToSubfolder(random.choice(subfolders))
 
