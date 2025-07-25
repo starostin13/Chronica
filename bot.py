@@ -39,62 +39,63 @@ def callback_query(call):
 
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
-    photo = getPhoto()
+    for chat_id in credentials.chat_ids.split(","):
+        photo = getPhoto()
 
-    try:
-        print("Sending " + photo.file)
-        photo_path_splited = photo.path.split("/")
-        if photo.photoslice_time is None:
-            comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
-        else:
-            comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
-
-        photoSizeMb = ((photo.size / 1000) / 1024)
-        if photo.media_type == "image":
-            if photoSizeMb  >= 5:
-                memorySizeRatio = 5 / photoSizeMb
-                downloadFile(photo.file, photo.name)
-                with  Image.open(dst + photo.name) as my_image:
-
-                    if hasattr(my_image, '_getexif'):
-                        exif = my_image._getexif()
-                        if exif:
-                            for tag, label in ExifTags.TAGS.items():
-                                if label == 'Orientation':
-                                    orientation = tag
-                                    break
-                            if orientation in exif:
-                                if exif[orientation] == 3:
-                                    my_image = my_image.rotate(180, expand=True)
-                                elif exif[orientation] == 6:
-                                    my_image = my_image.rotate(270, expand=True)
-                                elif exif[orientation] == 8:
-                                    my_image = my_image.rotate(90, expand=True)
-
-                    # the original width and height of the image
-                    image_height = float(my_image.height)
-                    image_width = float(my_image.width)
-                    #compressed the image
-                    my_image = my_image.resize((int(image_width / (2 * memorySizeRatio)),int(image_height / (2 * memorySizeRatio))),PIL.Image.NEAREST)
-                    #save the image
-                    my_image.save(dst + 'compressed.jpg')
-                bot.send_photo(credentials.chat_id, open(dst + 'compressed.jpg', 'rb'), caption = comment)
-                os.remove(dst + photo.name)
-                os.remove(dst + 'compressed.jpg')
+        try:
+            print("Sending " + photo.file)
+            photo_path_splited = photo.path.split("/")
+            if photo.photoslice_time is None:
+                comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
             else:
-                bot.send_photo(credentials.chat_id, photo.file, caption = comment)
-        if photo.media_type == "video":
-            if "gp3" in photo.name or "mp4" in photo.name  or "avi" in photo.name:
-                downloadFile(photo.file, photo.name)
-                bot.send_video(credentials.chat_id, open(dst + photo.name, 'rb'), caption = comment)
-                os.remove(dst + photo.name)
-                #bot.send_message(credentials.chat_id, photo.file)
-            else:
-                bot.send_video(credentials.chat_id, photo.file, caption = comment)
+                comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
 
-    except Exception as exc:
-        exceptionText = exc.description if exc.description != None else str(exc)
-        bot.send_message(credentials.chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + ". Unexpected " + exceptionText)
+            photoSizeMb = ((photo.size / 1000) / 1024)
+            if photo.media_type == "image":
+                if photoSizeMb  >= 5:
+                    memorySizeRatio = 5 / photoSizeMb
+                    downloadFile(photo.file, photo.name)
+                    with  Image.open(dst + photo.name) as my_image:
+
+                        if hasattr(my_image, '_getexif'):
+                            exif = my_image._getexif()
+                            if exif:
+                                for tag, label in ExifTags.TAGS.items():
+                                    if label == 'Orientation':
+                                        orientation = tag
+                                        break
+                                if orientation in exif:
+                                    if exif[orientation] == 3:
+                                        my_image = my_image.rotate(180, expand=True)
+                                    elif exif[orientation] == 6:
+                                        my_image = my_image.rotate(270, expand=True)
+                                    elif exif[orientation] == 8:
+                                        my_image = my_image.rotate(90, expand=True)
+
+                        # the original width and height of the image
+                        image_height = float(my_image.height)
+                        image_width = float(my_image.width)
+                        #compressed the image
+                        my_image = my_image.resize((int(image_width / (2 * memorySizeRatio)),int(image_height / (2 * memorySizeRatio))),PIL.Image.NEAREST)
+                        #save the image
+                        my_image.save(dst + 'compressed.jpg')
+                        bot.send_photo(chat_id, open(dst + 'compressed.jpg', 'rb'), caption = comment)
+                        os.remove(dst + photo.name)
+                        os.remove(dst + 'compressed.jpg')
+                else:
+                    bot.send_photo(chat_id, photo.file, caption = comment)
+            if photo.media_type == "video":
+                if "gp3" in photo.name or "mp4" in photo.name  or "avi" in photo.name:
+                    downloadFile(photo.file, photo.name)
+                    bot.send_video(chat_id, open(dst + photo.name, 'rb'), caption = comment)
+                    os.remove(dst + photo.name)
+                else:
+                    bot.send_video(chat_id, photo.file, caption = comment)
+        except Exception as exc:
+            exceptionText = getattr(exc, 'description', str(exc))
+            bot.send_message(chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + ". Unexpected " + exceptionText)
+        except AttributeError as ae:
+            bot.send_message(chat_id, f'Attribute error \n{str(ae)}')
 
 
 @bot.message_handler(content_types=['video'])
