@@ -7,12 +7,20 @@ from pickle import NONE, TRUE
 import credentials
 import random
 import yadisk
+import time
 
 from stringHelper import get_random_string
 
 dst = credentials.temp_folder
 
 y = yadisk.YaDisk(token=credentials.yandex_token)
+
+# Кэш для результатов поиска фотографий
+_photo_cache = {
+    'photos': [],
+    'cache_time': 0,
+    'cache_duration': 300  # Кэш на 5 минут
+}
 
 
 def createFolder():
@@ -115,6 +123,124 @@ def getPhoto():
     except Exception as e:
         print(f"Ошибка при выборе случайного файла: {str(e)}")
         return None
+
+
+def getPhoto():
+    """
+    Совместимость со старым кодом - возвращает одно случайное фото
+    """
+    available_photos = find_available_photos()
+    if available_photos:
+        return random.choice(available_photos)
+    return None
+
+
+def find_available_photos():
+    """
+    Ищет все доступные фотографии/видео по приоритету:
+    1. Точное совпадение по дате (день.месяц)
+    2. Диапазон ±1 день
+    3. Диапазон ±2 дня
+    4. Случайные файлы
+    Возвращает список найденных файлов
+    Использует кэширование для ускорения повторных запросов
+    """
+    global _photo_cache
+    
+    # Проверяем кэш
+    current_time = time.time()
+    if (current_time - _photo_cache['cache_time'] < _photo_cache['cache_duration'] 
+        and _photo_cache['photos']):
+        print(f"Используем кэшированные данные ({len(_photo_cache['photos'])} фотографий)")
+        return _photo_cache['photos']
+    
+    print("Кэш устарел или пуст, выполняем поиск...")
+    
+    # Проверка токена Яндекс.Диска
+    try:
+        if not y.check_token():
+            print("Invalid token")
+            return []
+    except Exception as e:
+        print(f"Ошибка при проверке токена Яндекс.Диска: {str(e)}")
+        return []
+    
+    # Информация о текущем использовании диска
+    try:
+        print("You already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
+    except Exception as e:
+        print(f"Ошибка при получении информации о диске: {str(e)}")
+
+    # Получаем текущую дату
+    today = date.today()
+    found_photos = []
+    
+    # Сначала ищем точное совпадение по дню и месяцу
+    try:
+        exact_matches = find_files_by_date_range(today, 0)
+        if exact_matches:
+            print(f"Найдено {len(exact_matches)} файлов с точным совпадением по дате")
+            found_photos = exact_matches
+        else:
+            print("Точного совпадения не найдено, ищем в диапазоне ±1 день")
+            range_matches = find_files_by_date_range(today, 1)
+            if range_matches:
+                print(f"Найдено {len(range_matches)} файлов в диапазоне ±1 день")
+                found_photos = range_matches
+            else:
+                print("В диапазоне ±1 день не найдено, ищем в диапазоне ±2 дня")
+                wider_matches = find_files_by_date_range(today, 2)
+                if wider_matches:
+                    print(f"Найдено {len(wider_matches)} файлов в диапазоне ±2 дня")
+                    found_photos = wider_matches
+                else:
+                    print("Файлов с совпадающими датами не найдено, собираем все доступные файлы")
+                    all_files = collect_all_media_files()
+                    if all_files:
+                        print(f"Найдено {len(all_files)} файлов всего")
+                        found_photos = all_files
+    except Exception as e:
+        print(f"Ошибка при поиске файлов: {str(e)}")
+        found_photos = []
+    
+    # Обновляем кэш
+    _photo_cache['photos'] = found_photos
+    _photo_cache['cache_time'] = current_time
+    
+    return found_photos
+
+
+def collect_all_media_files():
+    """
+    Собирает все медиа файлы из всех папок
+    """
+    all_files = []
+    try:
+        subfolders = list(y.listdir(credentials.main_dirrectory))
+        
+        for folder in subfolders:
+            try:
+                files = list(y.listdir(folder.path))
+                for file in files:
+                    if file.media_type in ["image", "video"]:
+                        all_files.append(file)
+            except Exception as e:
+                print(f"Ошибка при обработке папки {folder.path}: {str(e)}")
+                continue
+    except Exception as e:
+        print(f"Ошибка при сборе всех медиа файлов: {str(e)}")
+    
+    return all_files
+
+
+def clear_photo_cache():
+    """
+    Принудительно очищает кэш фотографий
+    """
+    global _photo_cache
+    _photo_cache['photos'] = []
+    _photo_cache['cache_time'] = 0
+    print("Кэш фотографий очищен")
 
 
 def find_files_by_date_range(target_date, day_range):
