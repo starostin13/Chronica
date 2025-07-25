@@ -5,6 +5,7 @@
 from datetime import datetime, timedelta
 import os
 from random import randrange
+import random
 from PIL import Image, ExifTags
 import sched
 import time
@@ -14,7 +15,7 @@ import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import credentials
-from yaHelper import createFolder, downloadFile, getLastUpdatedFolder, getPhoto, saveFileTo
+from yaHelper import createFolder, downloadFile, getLastUpdatedFolder, getPhoto, saveFileTo, find_available_photos, clear_photo_cache
 from stringHelper import numberToMonthNameRu
 import shutil
 
@@ -39,10 +40,29 @@ def callback_query(call):
 
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
+    # Выполняем поиск файлов один раз для всех чатов
+    print("Начинаем поиск доступных фотографий...")
+    available_photos = find_available_photos()
+    
+    if not available_photos:
+        # Если не найдено ни одного файла, отправляем сообщение во все чаты
+        for chat_id in credentials.chat_ids.split(","):
+            bot.send_message(chat_id, "Извините, не удалось найти фотографии из-за проблем с соединением или их отсутствия.")
+        return
+    
+    print(f"Найдено {len(available_photos)} доступных фотографий")
+    
+    # Теперь отправляем случайные фото в каждый чат
     for chat_id in credentials.chat_ids.split(","):
-        photo = getPhoto()
-
         try:
+            # Выбираем случайное фото из доступных
+            photo = random.choice(available_photos)
+            
+            # Проверяем, что photo не None
+            if photo is None:
+                bot.send_message(chat_id, "Извините, не удалось получить фото из-за проблем с соединением. Попробуйте позже.")
+                continue
+
             print("Sending " + photo.file)
             photo_path_splited = photo.path.split("/")
             if photo.photoslice_time is None:
@@ -75,15 +95,82 @@ def send_welcome(message):
                         # the original width and height of the image
                         image_height = float(my_image.height)
                         image_width = float(my_image.width)
+                        
+                        # Проверяем размеры изображения для соответствия требованиям Telegram
+                        max_dimension = 10000
+                        min_dimension = 1
+                        
+                        # Проверяем максимальные размеры
+                        if image_width > max_dimension or image_height > max_dimension:
+                            scale_factor = min(max_dimension / image_width, max_dimension / image_height)
+                            new_width = int(image_width * scale_factor)
+                            new_height = int(image_height * scale_factor)
+                            print(f"Уменьшаем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}")
+                            my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+                            image_width = float(new_width)
+                            image_height = float(new_height)
+                        
+                        # Проверяем минимальные размеры
+                        if image_width < min_dimension or image_height < min_dimension:
+                            new_width = max(int(image_width), min_dimension)
+                            new_height = max(int(image_height), min_dimension)
+                            print(f"Увеличиваем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}")
+                            my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+                            image_width = float(new_width)
+                            image_height = float(new_height)
+                        
+                        # Проверяем соотношение сторон (не более чем 20:1)
+                        aspect_ratio = max(image_width / image_height, image_height / image_width)
+                        if aspect_ratio > 20:
+                            if image_width > image_height:
+                                new_width = int(image_height * 20)
+                                new_height = int(image_height)
+                            else:
+                                new_width = int(image_width)
+                                new_height = int(image_width * 20)
+                            print(f"Корректируем соотношение сторон с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}")
+                            my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+                            image_width = float(new_width)
+                            image_height = float(new_height)
+                        
                         #compressed the image
-                        my_image = my_image.resize((int(image_width / (2 * memorySizeRatio)),int(image_height / (2 * memorySizeRatio))),PIL.Image.NEAREST)
+                        my_image = my_image.resize((int(image_width / (2 * memorySizeRatio)),int(image_height / (2 * memorySizeRatio))),PIL.Image.LANCZOS)
+                        
+                        # Финальная проверка размеров после сжатия
+                        final_width, final_height = my_image.size
+                        if final_width < 1 or final_height < 1:
+                            print(f"Размеры после сжатия слишком малы: {final_width}x{final_height}, устанавливаем минимальные")
+                            my_image = my_image.resize((max(final_width, 1), max(final_height, 1)), PIL.Image.LANCZOS)
+                        
+                        print(f"Итоговые размеры изображения: {my_image.size[0]}x{my_image.size[1]}")
                         #save the image
-                        my_image.save(dst + 'compressed.jpg')
+                        my_image.save(dst + 'compressed.jpg', quality=85, optimize=True)
                         bot.send_photo(chat_id, open(dst + 'compressed.jpg', 'rb'), caption = comment)
                         os.remove(dst + photo.name)
                         os.remove(dst + 'compressed.jpg')
                 else:
-                    bot.send_photo(chat_id, photo.file, caption = comment)
+                    # Для небольших файлов тоже проверяем размеры перед отправкой
+                    try:
+                        downloadFile(photo.file, photo.name)
+                        
+                        # Используем нашу функцию валидации
+                        if validate_and_fix_image(dst + photo.name, dst + 'validated.jpg'):
+                            # Изображение было исправлено
+                            bot.send_photo(chat_id, open(dst + 'validated.jpg', 'rb'), caption = comment)
+                            os.remove(dst + 'validated.jpg')
+                        else:
+                            # Изображение корректно, отправляем как есть
+                            bot.send_photo(chat_id, photo.file, caption = comment)
+                        
+                        os.remove(dst + photo.name)
+                    except Exception as e:
+                        print(f"Ошибка при проверке размеров изображения: {str(e)}")
+                        # Fallback - пытаемся отправить как есть
+                        try:
+                            bot.send_photo(chat_id, photo.file, caption = comment)
+                        except Exception as fallback_e:
+                            print(f"Не удалось отправить изображение: {str(fallback_e)}")
+                            bot.send_message(chat_id, f"Не удалось отправить изображение: {comment}")
             if photo.media_type == "video":
                 if "gp3" in photo.name or "mp4" in photo.name  or "avi" in photo.name:
                     downloadFile(photo.file, photo.name)
@@ -105,7 +192,8 @@ def echo_video(message):
         recievingFile(file, message)
 
     except Exception as exc:
-        bot.reply_to(message, "Не вышло: " + exc.description)
+        exceptionText = getattr(exc, 'description', str(exc))
+        bot.reply_to(message, "Не вышло: " + exceptionText)
 
 @bot.message_handler(content_types=['image', 'photo'])
 def echo_photo(message):
@@ -114,7 +202,8 @@ def echo_photo(message):
         recievingFile(file, message)
 
     except Exception as exc:
-        bot.reply_to(message, "Не вышло: " + exc.description)
+        exceptionText = getattr(exc, 'description', str(exc))
+        bot.reply_to(message, "Не вышло: " + exceptionText)
 
 @bot.message_handler(func=lambda msg: True)
 def echo_all(message):
@@ -132,6 +221,62 @@ def echo_all(message):
 def echo_test(message):
     print("TEST: " + message.text)
     #bot.send_animation()
+
+
+def validate_and_fix_image(image_path, output_path):
+    """
+    Проверяет и исправляет размеры изображения для соответствия требованиям Telegram
+    """
+    try:
+        with Image.open(image_path) as img:
+            width, height = img.size
+            print(f"Исходные размеры: {width}x{height}")
+            
+            # Константы для Telegram
+            MAX_DIMENSION = 10000
+            MIN_DIMENSION = 1
+            MAX_ASPECT_RATIO = 20
+            
+            needs_resize = False
+            new_width, new_height = width, height
+            
+            # Проверяем максимальные размеры
+            if width > MAX_DIMENSION or height > MAX_DIMENSION:
+                scale_factor = min(MAX_DIMENSION / width, MAX_DIMENSION / height)
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+                needs_resize = True
+                print(f"Превышены максимальные размеры, масштабируем к: {new_width}x{new_height}")
+            
+            # Проверяем минимальные размеры
+            if new_width < MIN_DIMENSION or new_height < MIN_DIMENSION:
+                new_width = max(new_width, MIN_DIMENSION)
+                new_height = max(new_height, MIN_DIMENSION)
+                needs_resize = True
+                print(f"Размеры слишком малы, увеличиваем к: {new_width}x{new_height}")
+            
+            # Проверяем соотношение сторон
+            aspect_ratio = max(new_width / new_height, new_height / new_width) if new_height > 0 else 1
+            if aspect_ratio > MAX_ASPECT_RATIO:
+                if new_width > new_height:
+                    new_width = int(new_height * MAX_ASPECT_RATIO)
+                else:
+                    new_height = int(new_width * MAX_ASPECT_RATIO)
+                needs_resize = True
+                print(f"Некорректное соотношение сторон, корректируем к: {new_width}x{new_height}")
+            
+            if needs_resize:
+                resized_img = img.resize((new_width, new_height), PIL.Image.LANCZOS)
+                resized_img.save(output_path, quality=85, optimize=True)
+                print(f"Изображение сохранено с размерами: {new_width}x{new_height}")
+                return True
+            else:
+                print("Размеры изображения корректны")
+                return False
+                
+    except Exception as e:
+        print(f"Ошибка при валидации изображения: {str(e)}")
+        return False
 
 
 def main_loop():
