@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
-from datetime import date
+from datetime import date, timedelta
 import os
 from pickle import NONE, TRUE
 import credentials
@@ -16,9 +16,14 @@ y = yadisk.YaDisk(token=credentials.yandex_token)
 
 
 def createFolder():
-    newFolderName = get_random_string(date.today().day)
-    y.mkdir(credentials.main_dirrectory + '/' + newFolderName)
-    return newFolderName
+    try:
+        newFolderName = get_random_string(date.today().day)
+        y.mkdir(credentials.main_dirrectory + '/' + newFolderName)
+        print(f"Папка {newFolderName} успешно создана")
+        return newFolderName
+    except Exception as e:
+        print(f"Ошибка при создании папки: {str(e)}")
+        return "ErrorFolder_" + str(date.today().day)
 
 def digToSubfolder(item):
     if item.type == "dir":
@@ -32,58 +37,140 @@ def digToSubfolder(item):
 
 
 def downloadFile(url, fileName):
-    y.download_by_link(url, dst + fileName)
+    try:
+        y.download_by_link(url, dst + fileName)
+        print(f"Файл {fileName} успешно скачан")
+    except Exception as e:
+        print(f"Ошибка при скачивании файла {fileName}: {str(e)}")
     
 
 def getLastUpdatedFolder():
-    if y.check_token():
-        folders = (list(y.listdir(credentials.main_dirrectory)))
-        folders.sort(key=lambda dt: dt.modified)
-        return folders[-1].name
+    try:
+        if y.check_token():
+            folders = (list(y.listdir(credentials.main_dirrectory)))
+            folders.sort(key=lambda dt: dt.modified)
+            return folders[-1].name
+    except Exception as e:
+        print(f"Ошибка при получении последней обновленной папки: {str(e)}")
+        return "DefaultFolder"
 
 
 def getPhoto():
-    # �������� ���������� ������
-    if not y.check_token():
-        print("Invalid token")
+    # Проверка токена Яндекс.Диска
+    try:
+        if not y.check_token():
+            print("Invalid token")
+            return None
+    except Exception as e:
+        print(f"Ошибка при проверке токена Яндекс.Диска: {str(e)}")
         return None
     
-    # ����� ���������� � ������� ������������
-    print("You already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
+    # Информация о текущем использовании диска
+    try:
+        print("You already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
+    except Exception as e:
+        print(f"Ошибка при получении информации о диске: {str(e)}")
 
-    # ��������� ������� ���� (���� � �����)
+    # Получаем текущую дату
     today = date.today()
-    today_day = today.day
-    today_month = today.month
     
-    # ������ ��� �������� ������, ��������� � ��� �� ���� � �����, �� � ������ ���
+    # Сначала ищем точное совпадение по дню и месяцу
+    try:
+        exact_matches = find_files_by_date_range(today, 0)
+        if exact_matches:
+            selected_file = random.choice(exact_matches)
+            print(f"Найдено точное совпадение по дате: {selected_file.name}")
+            return selected_file
+    except Exception as e:
+        print(f"Ошибка при поиске точного совпадения: {str(e)}")
+    
+    # Если точного совпадения нет, ищем в диапазоне ±1 день
+    try:
+        print("Точного совпадения не найдено, ищем в диапазоне ±1 день")
+        range_matches = find_files_by_date_range(today, 1)
+        if range_matches:
+            selected_file = random.choice(range_matches)
+            print(f"Найдено совпадение в диапазоне ±1 день: {selected_file.name}")
+            return selected_file
+    except Exception as e:
+        print(f"Ошибка при поиске в диапазоне ±1 день: {str(e)}")
+    
+    # Если и в диапазоне ничего нет, ищем в более широком диапазоне ±2 дня
+    try:
+        print("В диапазоне ±1 день не найдено, ищем в диапазоне ±2 дня")
+        wider_matches = find_files_by_date_range(today, 2)
+        if wider_matches:
+            selected_file = random.choice(wider_matches)
+            print(f"Найдено совпадение в диапазоне ±2 дня: {selected_file.name}")
+            return selected_file
+    except Exception as e:
+        print(f"Ошибка при поиске в диапазоне ±2 дня: {str(e)}")
+    
+    # Если не найдено ни одного совпадающего файла, используем обычную логику
+    try:
+        print("Файлов с совпадающими датами не найдено, выбираем случайный файл")
+        subfolders = list(y.listdir(credentials.main_dirrectory))
+        random.shuffle(subfolders)
+        return digToSubfolder(random.choice(subfolders))
+    except Exception as e:
+        print(f"Ошибка при выборе случайного файла: {str(e)}")
+        return None
+
+
+def find_files_by_date_range(target_date, day_range):
+    """
+    Ищет файлы, созданные в диапазоне ±day_range дней от target_date в любой другой год
+    """
     matching_files = []
     
-    # ��������� ������ ���� ������������� � �������� ����������
-    subfolders = list(y.listdir(credentials.main_dirrectory))
+    try:
+        # Создаем список дат для поиска
+        search_dates = []
+        for i in range(-day_range, day_range + 1):
+            search_date = target_date + timedelta(days=i)
+            search_dates.append((search_date.day, search_date.month))
+        
+        print(f"Ищем файлы для дат: {search_dates} (исключая {target_date.year} год)")
+        
+        # Получаем список всех подпапок в основной директории
+        subfolders = list(y.listdir(credentials.main_dirrectory))
+        
+        # Проходим через все папки и подпапки
+        for folder in subfolders:
+            try:
+                files = list(y.listdir(folder.path))
+                for file in files:
+                    # Проверка, является ли файл изображением или видео
+                    if file.media_type in ["image", "video"]:
+                        # Получаем дату создания файла
+                        if hasattr(file, 'created') and file.created:
+                            created_date = file.created
+                            file_date_tuple = (created_date.day, created_date.month)
+                            
+                            # Проверяем, попадает ли дата файла в наш диапазон и не в текущий год
+                            if file_date_tuple in search_dates and created_date.year != target_date.year:
+                                matching_files.append(file)
+                                print(f"Найден файл: {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
+            except Exception as e:
+                print(f"Ошибка при обработке папки {folder.path}: {str(e)}")
+                continue
     
-    # ������� ���� ������ � ��������������
-    for folder in subfolders:
-        files = list(y.listdir(folder.path))
-        for file in files:
-            # ��������, �������� �� ���� ������������ ��� �����
-            if file.media_type in ["image", "video"]:
-                # ���������� ���� �������� �����
-                created_date = file.created
-                if created_date.day == today_day and created_date.month == today_month and created_date.year != today.year:
-                    # ���������� ����� � ������, ���� ���� ���������
-                    matching_files.append(file)
+    except Exception as e:
+        print(f"Ошибка при поиске файлов по дате: {str(e)}")
+        return []
     
-    # ���� ������� ����� � ����������� �����, ������� ��������� �� ���
-    if matching_files:
-        return random.choice(matching_files)
-    
-    # ���� �� ������� �� ������ ����������� �����, ����������� �������� ������
-    random.shuffle(subfolders)
-    return digToSubfolder(random.choice(subfolders))
+    return matching_files
 
 
 def saveFileTo(localpath, yandexFolder):
-    if(y.check_token()):
-        if(os.path.isfile(localpath)):
-            y.upload(localpath, credentials.main_dirrectory + "/" + yandexFolder, overwrite=TRUE)
+    try:
+        if(y.check_token()):
+            if(os.path.isfile(localpath)):
+                y.upload(localpath, credentials.main_dirrectory + "/" + yandexFolder, overwrite=TRUE)
+                print(f"Файл {localpath} успешно загружен в {yandexFolder}")
+            else:
+                print(f"Локальный файл {localpath} не найден")
+        else:
+            print("Ошибка токена при загрузке файла")
+    except Exception as e:
+        print(f"Ошибка при загрузке файла {localpath}: {str(e)}")

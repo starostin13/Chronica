@@ -40,9 +40,14 @@ def callback_query(call):
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
     for chat_id in credentials.chat_ids.split(","):
-        photo = getPhoto()
-
         try:
+            photo = getPhoto()
+            
+            # Проверяем, что photo не None
+            if photo is None:
+                bot.send_message(chat_id, "Извините, не удалось получить фото из-за проблем с соединением. Попробуйте позже.")
+                continue
+
             print("Sending " + photo.file)
             photo_path_splited = photo.path.split("/")
             if photo.photoslice_time is None:
