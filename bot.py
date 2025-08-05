@@ -2,7 +2,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import os
 from random import randrange
 import random

@@ -268,15 +268,23 @@ def find_files_by_date_range(target_date, day_range):
                 for file in files:
                     # Проверка, является ли файл изображением или видео
                     if file.media_type in ["image", "video"]:
-                        # Получаем дату создания файла
-                        if hasattr(file, 'created') and file.created:
+                        # Получаем дату съёмки фото (не дату создания файла)
+                        if hasattr(file, 'photoslice_time') and file.photoslice_time:
+                            photo_date = file.photoslice_time
+                            file_date_tuple = (photo_date.day, photo_date.month)
+                            
+                            # Проверяем, попадает ли дата файла в наш диапазон и не в текущий год
+                            if file_date_tuple in search_dates and photo_date.year != target_date.year:
+                                matching_files.append(file)
+                                print(f"Найден файл: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}")
+                        elif hasattr(file, 'created') and file.created:
+                            # Fallback на дату создания файла, если нет даты съёмки
                             created_date = file.created
                             file_date_tuple = (created_date.day, created_date.month)
                             
-                            # Проверяем, попадает ли дата файла в наш диапазон и не в текущий год
                             if file_date_tuple in search_dates and created_date.year != target_date.year:
                                 matching_files.append(file)
-                                print(f"Найден файл: {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
+                                print(f"Найден файл (по дате создания): {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
             except Exception as e:
                 print(f"Ошибка при обработке папки {folder.path}: {str(e)}")
                 continue
