@@ -87,7 +87,18 @@ def send_welcome(message):
             if photo.media_type == "image":
                 if photoSizeMb  >= 5:
                     memorySizeRatio = 5 / photoSizeMb
-                    downloadFile(photo.file, photo.name)
+                    
+                    # Проверяем успешность скачивания
+                    if not downloadFile(photo.file, photo.name):
+                        print(f"Не удалось скачать большой файл {photo.name}")
+                        bot.send_message(chat_id, f"Не удалось скачать изображение (проблемы с сетью): {comment}")
+                        continue
+                    
+                    # Проверяем, что файл существует после скачивания
+                    if not os.path.exists(dst + photo.name):
+                        print(f"Файл {photo.name} не найден после скачивания")
+                        bot.send_message(chat_id, f"Изображение повреждено при загрузке: {comment}")
+                        continue
                     
                     # Проверяем формат файла
                     if photo.name.lower().endswith('.heic'):
@@ -112,11 +123,11 @@ def send_welcome(message):
                                 
                         except ImportError:
                             print("pillow-heif не установлен, пропускаем HEIC файл")
-                            bot.send_message(chat_id, f"Не удалось обработать HEIC изображение: {comment}")
+                            bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
                             os.remove(dst + photo.name)
                         except Exception as e:
                             print(f"Ошибка при обработке HEIC файла: {str(e)}")
-                            bot.send_message(chat_id, f"Ошибка при обработке изображения: {comment}")
+                            bot.send_message(chat_id, f"Ошибка обработки изображения: {comment}")
                             os.remove(dst + photo.name)
                     else:
                         # Обычная обработка для поддерживаемых форматов
@@ -129,12 +140,22 @@ def send_welcome(message):
                                 os.remove(dst + 'compressed.jpg')
                         except Exception as e:
                             print(f"Ошибка при обработке изображения: {str(e)}")
-                            bot.send_message(chat_id, f"Не удалось обработать изображение: {comment}")
+                            bot.send_message(chat_id, f"Изображение повреждено: {comment}")
                             os.remove(dst + photo.name)
                 else:
                     # Для небольших файлов тоже проверяем размеры перед отправкой
                     try:
-                        downloadFile(photo.file, photo.name)
+                        # Проверяем успешность скачивания
+                        if not downloadFile(photo.file, photo.name):
+                            print(f"Не удалось скачать файл {photo.name}")
+                            bot.send_message(chat_id, f"Не удалось скачать изображение: {comment}")
+                            continue
+                        
+                        # Проверяем, что файл существует после скачивания
+                        if not os.path.exists(dst + photo.name):
+                            print(f"Файл {photo.name} не найден после скачивания")
+                            bot.send_message(chat_id, f"Изображение повреждено при загрузке: {comment}")
+                            continue
                         
                         # Проверяем, является ли файл HEIC
                         if photo.name.lower().endswith('.heic'):
@@ -158,10 +179,10 @@ def send_welcome(message):
                                     
                             except ImportError:
                                 print("pillow-heif не установлен, пропускаем HEIC файл")
-                                bot.send_message(chat_id, f"Не удалось обработать HEIC изображение: {comment}")
+                                bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
                             except Exception as e:
                                 print(f"Ошибка при обработке HEIC файла: {str(e)}")
-                                bot.send_message(chat_id, f"Ошибка при обработке HEIC изображения: {comment}")
+                                bot.send_message(chat_id, f"Ошибка обработки HEIC: {comment}")
                         else:
                             # Используем нашу функцию валидации для обычных форматов
                             if validate_and_fix_image(dst + photo.name, dst + 'validated.jpg'):
@@ -181,21 +202,40 @@ def send_welcome(message):
                                 bot.send_photo(chat_id, photo.file, caption = comment)
                             except Exception as fallback_e:
                                 print(f"Не удалось отправить изображение: {str(fallback_e)}")
-                                bot.send_message(chat_id, f"Не удалось отправить изображение: {comment}")
+                                bot.send_message(chat_id, f"Изображение слишком большое: {comment}")
                         else:
-                            bot.send_message(chat_id, f"Не удалось обработать HEIC изображение: {comment}")
+                            bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
             if photo.media_type == "video":
                 if "gp3" in photo.name or "mp4" in photo.name  or "avi" in photo.name:
-                    downloadFile(photo.file, photo.name)
-                    bot.send_video(chat_id, open(dst + photo.name, 'rb'), caption = comment)
-                    os.remove(dst + photo.name)
+                    # Проверяем успешность скачивания видео
+                    if not downloadFile(photo.file, photo.name):
+                        print(f"Не удалось скачать видео файл {photo.name}")
+                        bot.send_message(chat_id, f"Не удалось скачать видео: {comment}")
+                        continue
+                    
+                    # Проверяем, что файл существует после скачивания
+                    if not os.path.exists(dst + photo.name):
+                        print(f"Видео файл {photo.name} не найден после скачивания")
+                        bot.send_message(chat_id, f"Видео повреждено при загрузке: {comment}")
+                        continue
+                    
+                    try:
+                        bot.send_video(chat_id, open(dst + photo.name, 'rb'), caption = comment)
+                        os.remove(dst + photo.name)
+                    except Exception as video_e:
+                        print(f"Ошибка при отправке видео: {str(video_e)}")
+                        bot.send_message(chat_id, f"Видео слишком большое для отправки: {comment}")
+                        if os.path.exists(dst + photo.name):
+                            os.remove(dst + photo.name)
                 else:
                     bot.send_video(chat_id, photo.file, caption = comment)
         except Exception as exc:
             exceptionText = getattr(exc, 'description', str(exc))
-            bot.send_message(chat_id, "Try to send from " + photo_path_splited[len(photo_path_splited) - 2] + ". Unexpected " + exceptionText)
+            print(f"Ошибка при отправке файла: {exceptionText}")
+            bot.send_message(chat_id, f"Произошла ошибка при отправке файла. Попробуем в следующий раз.")
         except AttributeError as ae:
-            bot.send_message(chat_id, f'Attribute error \n{str(ae)}')
+            print(f"Ошибка атрибутов: {str(ae)}")
+            bot.send_message(chat_id, f'Временные проблемы с файлом. Попробуем позже.')
 
 
 @bot.message_handler(content_types=['video'])

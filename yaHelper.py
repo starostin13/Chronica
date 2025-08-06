@@ -44,12 +44,53 @@ def digToSubfolder(item):
     return NONE
 
 
-def downloadFile(url, fileName):
-    try:
-        y.download_by_link(url, dst + fileName)
-        print(f"Файл {fileName} успешно скачан")
-    except Exception as e:
-        print(f"Ошибка при скачивании файла {fileName}: {str(e)}")
+def downloadFile(url, fileName, max_retries=3):
+    """
+    Скачивает файл с Yandex Disk с повторными попытками
+    """
+    for attempt in range(max_retries):
+        try:
+            # Убеждаемся, что папка назначения существует
+            os.makedirs(dst, exist_ok=True)
+            
+            # Проверяем доступность токена
+            if not y.check_token():
+                print(f"Ошибка токена при скачивании {fileName} (попытка {attempt + 1})")
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Ждем перед повторной попыткой
+                    continue
+                return False
+            
+            file_path = dst + fileName
+            
+            # Удаляем файл, если он уже существует (для повторной попытки)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                
+            print(f"Попытка скачивания {fileName} (попытка {attempt + 1})")
+            
+            # Скачиваем файл
+            y.download_by_link(url, file_path)
+            
+            # Проверяем, что файл действительно скачался
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                file_size = os.path.getsize(file_path)
+                print(f"Файл {fileName} успешно скачан ({file_size} байт)")
+                return True
+            else:
+                print(f"Файл {fileName} не скачался или имеет нулевой размер (попытка {attempt + 1})")
+                if attempt < max_retries - 1:
+                    time.sleep(3)  # Ждем дольше перед повторной попыткой
+                    continue
+                    
+        except Exception as e:
+            print(f"Ошибка при скачивании файла {fileName} (попытка {attempt + 1}): {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(5)  # Ждем перед повторной попыткой при ошибке
+                continue
+    
+    print(f"Не удалось скачать файл {fileName} после {max_retries} попыток")
+    return False
     
 
 def getLastUpdatedFolder():
