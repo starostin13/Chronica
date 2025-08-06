@@ -138,10 +138,8 @@ def getPhoto():
 def find_available_photos():
     """
     Ищет все доступные фотографии/видео по приоритету:
-    1. Точное совпадение по дате (день.месяц)
-    2. Диапазон ±1 день
-    3. Диапазон ±2 дня
-    4. Случайные файлы
+    1. Точное совпадение по дате (день.месяц) из любого года
+    2. Случайные файлы, если нет совпадений по дате
     Возвращает список найденных файлов
     Использует кэширование для ускорения повторных запросов
     """
@@ -175,30 +173,18 @@ def find_available_photos():
     today = date.today()
     found_photos = []
     
-    # Сначала ищем точное совпадение по дню и месяцу
+    # Ищем точное совпадение по дню и месяцу (включая текущий год)
     try:
         exact_matches = find_files_by_date_range(today, 0)
         if exact_matches:
             print(f"Найдено {len(exact_matches)} файлов с точным совпадением по дате")
             found_photos = exact_matches
         else:
-            print("Точного совпадения не найдено, ищем в диапазоне ±1 день")
-            range_matches = find_files_by_date_range(today, 1)
-            if range_matches:
-                print(f"Найдено {len(range_matches)} файлов в диапазоне ±1 день")
-                found_photos = range_matches
-            else:
-                print("В диапазоне ±1 день не найдено, ищем в диапазоне ±2 дня")
-                wider_matches = find_files_by_date_range(today, 2)
-                if wider_matches:
-                    print(f"Найдено {len(wider_matches)} файлов в диапазоне ±2 дня")
-                    found_photos = wider_matches
-                else:
-                    print("Файлов с совпадающими датами не найдено, собираем все доступные файлы")
-                    all_files = collect_all_media_files()
-                    if all_files:
-                        print(f"Найдено {len(all_files)} файлов всего")
-                        found_photos = all_files
+            print("Файлов с совпадающими датами не найдено, собираем все доступные файлы")
+            all_files = collect_all_media_files()
+            if all_files:
+                print(f"Найдено {len(all_files)} файлов всего")
+                found_photos = all_files
     except Exception as e:
         print(f"Ошибка при поиске файлов: {str(e)}")
         found_photos = []
@@ -256,7 +242,7 @@ def find_files_by_date_range(target_date, day_range):
             search_date = target_date + timedelta(days=i)
             search_dates.append((search_date.day, search_date.month))
         
-        print(f"Ищем файлы для дат: {search_dates} (исключая {target_date.year} год)")
+        print(f"Ищем файлы для дат: {search_dates}")
         
         # Получаем список всех подпапок в основной директории
         subfolders = list(y.listdir(credentials.main_dirrectory))
@@ -273,8 +259,8 @@ def find_files_by_date_range(target_date, day_range):
                             photo_date = file.photoslice_time
                             file_date_tuple = (photo_date.day, photo_date.month)
                             
-                            # Проверяем, попадает ли дата файла в наш диапазон и не в текущий год
-                            if file_date_tuple in search_dates and photo_date.year != target_date.year:
+                            # Проверяем, попадает ли дата файла в наш диапазон
+                            if file_date_tuple in search_dates:
                                 matching_files.append(file)
                                 print(f"Найден файл: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}")
                         elif hasattr(file, 'created') and file.created:
@@ -282,7 +268,7 @@ def find_files_by_date_range(target_date, day_range):
                             created_date = file.created
                             file_date_tuple = (created_date.day, created_date.month)
                             
-                            if file_date_tuple in search_dates and created_date.year != target_date.year:
+                            if file_date_tuple in search_dates:
                                 matching_files.append(file)
                                 print(f"Найден файл (по дате создания): {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
             except Exception as e:

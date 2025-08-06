@@ -68,7 +68,20 @@ def send_welcome(message):
             if photo.photoslice_time is None:
                 comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
             else:
-                comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
+                from datetime import date
+                today = date.today()
+                photo_date = photo.photoslice_time.date()
+                
+                # Проверяем, совпадает ли дата фото с сегодняшним днем и месяцем
+                if (photo_date.day == today.day and 
+                    photo_date.month == today.month and 
+                    photo_date.year == today.year):
+                    comment = "Это %s. Произошло сегодня!" % photo_path_splited[len(photo_path_splited) - 2]
+                elif (photo_date.day == today.day and 
+                      photo_date.month == today.month):
+                    comment = "Это %s. Дело было в этот день в %s году" % (photo_path_splited[len(photo_path_splited) - 2], photo.photoslice_time.year)
+                else:
+                    comment = "Это %s. Дело было в %s %s года" % (photo_path_splited[len(photo_path_splited) - 2], numberToMonthNameRu(photo.photoslice_time.month), photo.photoslice_time.year)
 
             photoSizeMb = ((photo.size / 1000) / 1024)
             if photo.media_type == "image":
