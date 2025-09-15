@@ -170,25 +170,28 @@ def getPhoto():
     """
     Совместимость со старым кодом - возвращает одно случайное фото
     """
-    available_photos = find_available_photos()
+    available_photos = find_available_photos(search_by_date=True)
     if available_photos:
         return random.choice(available_photos)
     return None
 
 
-def find_available_photos():
+def find_available_photos(search_by_date=True):
     """
     Ищет все доступные фотографии/видео по приоритету:
-    1. Точное совпадение по дате (день.месяц) из любого года
-    2. Случайные файлы, если нет совпадений по дате
+    1. Если search_by_date=True: точное совпадение по дате (день.месяц) из любого года
+    2. Если search_by_date=False или нет совпадений по дате: случайные файлы
     Возвращает список найденных файлов
     Использует кэширование для ускорения повторных запросов
     """
     global _photo_cache
     
+    # Для случайного поиска не используем кэш дат
+    cache_key = 'date' if search_by_date else 'random'
+    
     # Проверяем кэш
     current_time = time.time()
-    if (current_time - _photo_cache['cache_time'] < _photo_cache['cache_duration'] 
+    if (search_by_date and current_time - _photo_cache['cache_time'] < _photo_cache['cache_duration'] 
         and _photo_cache['photos']):
         print(f"Используем кэшированные данные ({len(_photo_cache['photos'])} фотографий)")
         return _photo_cache['photos']
@@ -214,21 +217,34 @@ def find_available_photos():
     today = date.today()
     found_photos = []
     
-    # Ищем точное совпадение по дню и месяцу (включая текущий год)
-    try:
-        exact_matches = find_files_by_date_range(today, 0)
-        if exact_matches:
-            print(f"Найдено {len(exact_matches)} файлов с точным совпадением по дате")
-            found_photos = exact_matches
-        else:
-            print("Файлов с совпадающими датами не найдено, собираем все доступные файлы")
+    # Выбираем стратегию поиска
+    if search_by_date:
+        # Ищем точное совпадение по дню и месяцу (включая текущий год)
+        try:
+            exact_matches = find_files_by_date_range(today, 0)
+            if exact_matches:
+                print(f"Найдено {len(exact_matches)} файлов с точным совпадением по дате")
+                found_photos = exact_matches
+            else:
+                print("Файлов с совпадающими датами не найдено, собираем все доступные файлы")
+                all_files = collect_all_media_files()
+                if all_files:
+                    print(f"Найдено {len(all_files)} файлов всего")
+                    found_photos = all_files
+        except Exception as e:
+            print(f"Ошибка при поиске файлов: {str(e)}")
+            found_photos = []
+    else:
+        # Сразу собираем все доступные файлы (случайный поиск)
+        try:
+            print("Выполняем случайный поиск файлов")
             all_files = collect_all_media_files()
             if all_files:
-                print(f"Найдено {len(all_files)} файлов всего")
+                print(f"Найдено {len(all_files)} файлов для случайного выбора")
                 found_photos = all_files
-    except Exception as e:
-        print(f"Ошибка при поиске файлов: {str(e)}")
-        found_photos = []
+        except Exception as e:
+            print(f"Ошибка при случайном поиске файлов: {str(e)}")
+            found_photos = []
     
     # Обновляем кэш
     _photo_cache['photos'] = found_photos
