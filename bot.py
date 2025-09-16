@@ -1,17 +1,18 @@
-#!/usr/bin/python3.11
+"""Главный файл бота"""
+# !/usr/bin/python3.11
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
 from datetime import date
 import os
 import random
-from PIL import Image, ExifTags
 import sched
 import time
+from PIL import Image, ExifTags
 import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import credentials
-from yaHelper import (createFolder, downloadFile, getLastUpdatedFolder, 
+from yaHelper import (createFolder, downloadFile, getLastUpdatedFolder,
                       saveFileTo, find_available_photos, clear_photo_cache)
 from stringHelper import numberToMonthNameRu
 
@@ -29,8 +30,8 @@ def callback_query(call):
     for entry in os.listdir(dst):
         if os.path.isfile(os.path.join(dst, entry)):
             if call.data == "new":
-                saveFileTo(os.path.join(dst, entry), 
-                          newFolderName + "/" + entry)
+                saveFileTo(os.path.join(dst, entry),
+                           newFolderName + "/" + entry)
             elif call.data != "decline":
                 saveFileTo(os.path.join(dst, entry), call.data + "/" + entry)
             os.remove(os.path.join(dst, entry))
@@ -40,7 +41,7 @@ def callback_query(call):
 def send_welcome(message):
     # Получаем ID чата, из которого пришла команда
     chat_id = str(message.chat.id)
-    
+
     # Проверяем, нужно ли искать по дате или сразу случайные файлы
     configured_chats = credentials.chat_ids.split(",")
     if chat_id in configured_chats:
@@ -49,57 +50,59 @@ def send_welcome(message):
     else:
         print(f"Команда из стороннего чата {chat_id} - ищем файлы по дате")
         search_by_date = True
-    
+
     # Выполняем поиск файлов с выбранной стратегией
     print("Начинаем поиск доступных фотографий...")
     available_photos = find_available_photos(search_by_date)
-    
+
     if not available_photos:
         bot.send_message(
-            chat_id, 
-            "Извините, не удалось найти фотографии из-за проблем с соединением или их отсутствия."
+            chat_id,
+            "Не удалось найти фотографии."
         )
         return
-    
+
     print(f"Найдено {len(available_photos)} доступных фотографий")
-    
+
     # Пытаемся отправить фото, перебирая доступные до успешной отправки
     max_attempts = min(10, len(available_photos))
     attempts = 0
-    
+
     while attempts < max_attempts and available_photos:
         attempts += 1
         try:
             photo = random.choice(available_photos)
             available_photos.remove(photo)
-            
+
             if photo is None:
                 continue
 
             print(f"Попытка {attempts}: Отправляем {photo.name}")
-            
+
             # Формируем комментарий
             photo_path_splited = photo.path.split("/")
             if photo.photoslice_time is None:
-                comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
+                comment = "Это " + \
+                    photo_path_splited[len(photo_path_splited) - 2]
             else:
                 today = date.today()
                 photo_date = photo.photoslice_time.date()
-                
-                if (photo_date.day == today.day and 
-                    photo_date.month == today.month and 
-                    photo_date.year == today.year):
-                    comment = "Это %s. Произошло сегодня!" % photo_path_splited[len(photo_path_splited) - 2]
-                elif (photo_date.day == today.day and 
+
+                if (photo_date.day == today.day and
+                    photo_date.month == today.month and
+                        photo_date.year == today.year):
+                    comment = "Это %s. Произошло сегодня!" % photo_path_splited[len(
+                        photo_path_splited) - 2]
+                elif (photo_date.day == today.day and
                       photo_date.month == today.month):
                     comment = "Это %s. Дело было в этот день в %s году" % (
-                        photo_path_splited[len(photo_path_splited) - 2], 
+                        photo_path_splited[len(photo_path_splited) - 2],
                         photo.photoslice_time.year
                     )
                 else:
                     comment = "Это %s. Дело было в %s %s года" % (
-                        photo_path_splited[len(photo_path_splited) - 2], 
-                        numberToMonthNameRu(photo.photoslice_time.month), 
+                        photo_path_splited[len(photo_path_splited) - 2],
+                        numberToMonthNameRu(photo.photoslice_time.month),
                         photo.photoslice_time.year
                     )
 
@@ -111,7 +114,7 @@ def send_welcome(message):
                 else:
                     print(f"Не удалось отправить изображение {photo.name}")
                     continue
-                    
+
             elif photo.media_type == "video":
                 if send_video_file(chat_id, photo, comment):
                     print(f"Успешно отправлено видео {photo.name}")
@@ -119,15 +122,15 @@ def send_welcome(message):
                 else:
                     print(f"Не удалось отправить видео {photo.name}")
                     continue
-                    
+
         except Exception as e:
             error_photo = photo.name if 'photo' in locals() else 'неизвестно'
             print(f"Ошибка при обработке файла {error_photo}: {str(e)}")
             continue
-    
+
     # Если дошли до сюда, значит не смогли отправить ни один файл
     bot.send_message(
-        chat_id, 
+        chat_id,
         "Извините, не удалось отправить ни одного файла. Попробуйте позже."
     )
 
@@ -136,25 +139,25 @@ def send_image_file(chat_id, photo, comment):
     """Отправляет изображение, возвращает True при успехе"""
     try:
         photoSizeMb = ((photo.size / 1000) / 1024)
-        
+
         if photoSizeMb >= 5:
             # Большой файл - нужно скачать и сжать
             memorySizeRatio = 5 / photoSizeMb
-            
+
             if not downloadFile(photo.file, photo.name):
                 print(f"Не удалось скачать большой файл {photo.name}")
                 return False
-            
+
             if not os.path.exists(dst + photo.name):
                 print(f"Файл {photo.name} не найден после скачивания")
                 return False
-            
+
             # Обрабатываем HEIC файлы
             if photo.name.lower().endswith('.heic'):
                 try:
                     import pillow_heif
                     pillow_heif.register_heif_opener()
-                    
+
                     with Image.open(dst + photo.name) as my_image:
                         if my_image.mode != 'RGB':
                             my_image = my_image.convert('RGB')
@@ -162,17 +165,17 @@ def send_image_file(chat_id, photo, comment):
                             my_image, memorySizeRatio
                         )
                         my_image.save(
-                            dst + 'compressed.jpg', 'JPEG', 
+                            dst + 'compressed.jpg', 'JPEG',
                             quality=85, optimize=True
                         )
-                        
+
                     with open(dst + 'compressed.jpg', 'rb') as f:
                         bot.send_photo(chat_id, f, caption=comment)
-                    
+
                     os.remove(dst + photo.name)
                     os.remove(dst + 'compressed.jpg')
                     return True
-                    
+
                 except ImportError:
                     print("pillow-heif не установлен")
                     os.remove(dst + photo.name)
@@ -189,16 +192,16 @@ def send_image_file(chat_id, photo, comment):
                         my_image = process_image_with_validation(
                             my_image, memorySizeRatio
                         )
-                        my_image.save(dst + 'compressed.jpg', 
-                                    quality=85, optimize=True)
-                        
+                        my_image.save(dst + 'compressed.jpg',
+                                      quality=85, optimize=True)
+
                     with open(dst + 'compressed.jpg', 'rb') as f:
                         bot.send_photo(chat_id, f, caption=comment)
-                    
+
                     os.remove(dst + photo.name)
                     os.remove(dst + 'compressed.jpg')
                     return True
-                    
+
                 except Exception as e:
                     print(f"Ошибка при обработке изображения: {str(e)}")
                     if os.path.exists(dst + photo.name):
@@ -208,32 +211,32 @@ def send_image_file(chat_id, photo, comment):
             # Небольшой файл
             if not downloadFile(photo.file, photo.name):
                 return False
-            
+
             if not os.path.exists(dst + photo.name):
                 return False
-            
+
             # Проверяем HEIC
             if photo.name.lower().endswith('.heic'):
                 try:
                     import pillow_heif
                     pillow_heif.register_heif_opener()
-                    
+
                     with Image.open(dst + photo.name) as heic_image:
                         if heic_image.mode != 'RGB':
                             heic_image = heic_image.convert('RGB')
                         validated_img = apply_size_validation(heic_image)
                         validated_img.save(
-                            dst + 'heic_converted.jpg', 'JPEG', 
+                            dst + 'heic_converted.jpg', 'JPEG',
                             quality=85, optimize=True
                         )
-                        
+
                     with open(dst + 'heic_converted.jpg', 'rb') as f:
                         bot.send_photo(chat_id, f, caption=comment)
-                    
+
                     os.remove(dst + photo.name)
                     os.remove(dst + 'heic_converted.jpg')
                     return True
-                    
+
                 except ImportError:
                     print("pillow-heif не установлен")
                     os.remove(dst + photo.name)
@@ -246,17 +249,17 @@ def send_image_file(chat_id, photo, comment):
             else:
                 # Обычное изображение небольшого размера
                 try:
-                    if validate_and_fix_image(dst + photo.name, 
-                                            dst + 'validated.jpg'):
+                    if validate_and_fix_image(dst + photo.name,
+                                              dst + 'validated.jpg'):
                         with open(dst + 'validated.jpg', 'rb') as f:
                             bot.send_photo(chat_id, f, caption=comment)
                         os.remove(dst + 'validated.jpg')
                     else:
                         bot.send_photo(chat_id, photo.file, caption=comment)
-                    
+
                     os.remove(dst + photo.name)
                     return True
-                    
+
                 except Exception as e:
                     print(f"Ошибка при отправке изображения: {str(e)}")
                     if os.path.exists(dst + photo.name):
@@ -273,10 +276,10 @@ def send_video_file(chat_id, photo, comment):
         if "gp3" in photo.name or "mp4" in photo.name or "avi" in photo.name:
             if not downloadFile(photo.file, photo.name):
                 return False
-            
+
             if not os.path.exists(dst + photo.name):
                 return False
-            
+
             try:
                 with open(dst + photo.name, 'rb') as f:
                     bot.send_video(chat_id, f, caption=comment)
@@ -374,7 +377,7 @@ def apply_size_validation(image):
     """Проверяет и корректирует размеры изображения для Telegram"""
     width, height = image.size
     max_dimension = 10000
-    
+
     # Проверяем максимальные размеры
     if width > max_dimension or height > max_dimension:
         # Вычисляем коэффициент масштабирования
@@ -382,7 +385,7 @@ def apply_size_validation(image):
         new_width = int(width * scale_factor)
         new_height = int(height * scale_factor)
         image = image.resize((new_width, new_height), Image.LANCZOS)
-    
+
     return image
 
 
@@ -395,7 +398,7 @@ def validate_and_fix_image(input_path, output_path):
     try:
         with Image.open(input_path) as img:
             fixed_img = apply_size_validation(img)
-            
+
             # Проверяем, изменилось ли изображение
             if fixed_img.size != img.size:
                 fixed_img.save(output_path, quality=85, optimize=True)
@@ -428,12 +431,13 @@ def recievingFile(fileLink, message):
             markup.add(InlineKeyboardButton(item, callback_data=item))
 
         # Добавляем кнопку для создания новой папки
-        markup.add(InlineKeyboardButton("Создать новую папку", callback_data="new"))
+        markup.add(InlineKeyboardButton(
+            "Создать новую папку", callback_data="new"))
         # Добавляем кнопку для отказа
         markup.add(InlineKeyboardButton("Отмена", callback_data="decline"))
 
-        bot.send_message(message.chat.id, "Куда сохранить файл?", 
-                        reply_markup=markup)
+        bot.send_message(message.chat.id, "Куда сохранить файл?",
+                         reply_markup=markup)
     else:
         print(f"Ошибка при скачивании файла: {downloadResponse.status_code}")
 
@@ -443,7 +447,7 @@ if __name__ == '__main__':
         try:
             # Очищаем кеш при запуске
             clear_photo_cache()
-            
+
             print("Bot started")
             bot.polling()
         except Exception as e:
