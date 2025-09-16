@@ -15,7 +15,7 @@ import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import credentials
-from yaHelper import createFolder, downloadFile, getLastUpdatedFolder, getPhoto, saveFileTo, find_available_photos, clear_photo_cache
+from yaHelper import createFolder, downloadFile, getLastUpdatedFolder,saveFileTo, find_available_photos
 from stringHelper import numberToMonthNameRu
 import shutil
 
@@ -248,10 +248,20 @@ def send_welcome(message):
                             os.remove(dst + photo.name)
                 else:
                     bot.send_video(chat_id, photo.file, caption = comment)
-    except Exception as exc:
-        exceptionText = getattr(exc, 'description', str(exc))
-        print(f"Ошибка при отправке файла: {exceptionText}")
-        bot.send_message(chat_id, f"Произошла ошибка при отправке файла. Попробуем в следующий раз.")
+            # Если успешно отправили фото, выходим из цикла
+            return
+            
+        except Exception as exc:
+            exceptionText = getattr(exc, 'description', str(exc))
+            print(f"Ошибка при отправке файла: {exceptionText}")
+            # Убираем проблемный файл из списка доступных
+            if photo in available_photos:
+                available_photos.remove(photo)
+            # Продолжаем цикл для следующей попытки
+            continue
+    
+    # Если все попытки исчерпаны
+    bot.send_message(chat_id, "Не удалось отправить фотографию после нескольких попыток.")
 
 
 @bot.message_handler(content_types=['video'])
