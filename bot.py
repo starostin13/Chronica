@@ -2,11 +2,14 @@
 # !/usr/bin/python3.11
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
-from datetime import date
+from datetime import date, datetime, timedelta
 import os
 import random
 import sched
 import time
+import threading
+from random import randrange
+import pytz
 from PIL import Image, ExifTags
 import requests
 import telebot
@@ -410,6 +413,138 @@ def validate_and_fix_image(input_path, output_path):
         return False
 
 
+def scheduled_photo_sender():
+    """Отправляет фото по расписанию во все настроенные чаты"""
+    try:
+        current_time = datetime.now()
+        print(f"📸 Запуск автоматической отправки фото по расписанию в {current_time.strftime('%d/%m/%Y %H:%M:%S')} (локальное время)")
+        
+        # Получаем список настроенных чатов
+        configured_chats = credentials.chat_ids.split(",")
+        configured_chats = [chat.strip() for chat in configured_chats]
+        
+        if not configured_chats:
+            print("Не найдено настроенных чатов для отправки")
+            return
+            
+        print(f"Найдено {len(configured_chats)} настроенных чатов: {configured_chats}")
+        
+        # Ищем фотографии по дате (тот же день и месяц любого года)
+        print("Поиск фотографий для текущей даты...")
+        available_photos = find_available_photos(search_by_date=True)
+        
+        if not available_photos:
+            print("Не найдено подходящих фотографий для отправки по расписанию")
+            return
+            
+        print(f"Найдено {len(available_photos)} подходящих фотографий")
+        
+        # Отправляем разные фото в каждый чат
+        for chat_id in configured_chats:
+            if not available_photos:
+                print(f"Закончились доступные фото для чата {chat_id}")
+                break
+                
+            # Выбираем случайное фото из доступных
+            photo = random.choice(available_photos)
+            available_photos.remove(photo)  # Убираем чтобы не повторяться
+            
+            print(f"Отправка фото {photo.name} в чат {chat_id}")
+            
+            try:
+                # Формируем комментарий
+                photo_path_splited = photo.path.split("/")
+                if photo.photoslice_time is None:
+                    comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
+                else:
+                    today = date.today()
+                    photo_date = photo.photoslice_time.date()
+
+                    if (photo_date.day == today.day and
+                        photo_date.month == today.month and
+                        photo_date.year == today.year):
+                        comment = "Это %s. Произошло сегодня!" % photo_path_splited[len(photo_path_splited) - 2]
+                    elif (photo_date.day == today.day and
+                          photo_date.month == today.month):
+                        comment = "Это %s. Дело было в этот день в %s году" % (
+                            photo_path_splited[len(photo_path_splited) - 2],
+                            photo.photoslice_time.year
+                        )
+                    else:
+                        comment = "Это %s. Дело было в %s %s года" % (
+                            photo_path_splited[len(photo_path_splited) - 2],
+                            numberToMonthNameRu(photo.photoslice_time.month),
+                            photo.photoslice_time.year
+                        )
+
+                # Отправляем файл
+                success = False
+                if photo.media_type == "image":
+                    success = send_image_file(chat_id, photo, comment)
+                elif photo.media_type == "video":
+                    success = send_video_file(chat_id, photo, comment)
+                    
+                if success:
+                    print(f"Успешно отправлено в чат {chat_id}")
+                else:
+                    print(f"Не удалось отправить в чат {chat_id}")
+                    
+            except Exception as e:
+                print(f"Ошибка при отправке в чат {chat_id}: {str(e)}")
+                continue
+                
+        completion_time = datetime.now()
+        print(f"✅ Завершена автоматическая отправка фото по расписанию в {completion_time.strftime('%H:%M:%S')} (локальное время)")
+        
+    except Exception as e:
+        print(f"Ошибка в scheduled_photo_sender: {str(e)}")
+
+
+def schedule_first_photo():
+    """Планирует первую отправку фото через несколько минут (для быстрого тестирования)"""
+    skip_time_minutes = randrange(1, 6)  # От 1 до 5 минут для первой отправки
+    now = datetime.now()
+    next_time = now + timedelta(minutes=skip_time_minutes)
+    
+    print(f"🚀 Планирование ПЕРВОЙ отправки через {skip_time_minutes} минут")
+    print(f"Первая отправка запустится в {next_time.strftime('%d/%m/%Y %H:%M:%S')} (локальное время)")
+    
+    # Создаем задачу в планировщике (время в секундах)
+    schedule.enter(skip_time_minutes * 60, 1, scheduled_photo_sender_with_reschedule, ())
+
+
+def schedule_next_photo():
+    """Планирует следующую отправку фото через случайное количество часов"""
+    skip_time = randrange(1, 14)  # От 1 до 13 часов
+    now = datetime.now()
+    next_time = now + timedelta(hours=skip_time)
+    
+    print(f"⏰ Планирование следующей отправки через {skip_time} часов")
+    print(f"Следующая отправка запустится в {next_time.strftime('%d/%m/%Y %H:%M:%S')} (локальное время)")
+    
+    # Создаем задачу в планировщике
+    schedule.enter(skip_time * 3600, 1, scheduled_photo_sender_with_reschedule, ())
+
+
+def scheduled_photo_sender_with_reschedule():
+    """Отправляет фото и автоматически планирует следующую отправку"""
+    # Выводим время запуска текущей задачи
+    current_time = datetime.now()
+    print(f"🕐 Запуск запланированной отправки в {current_time.strftime('%d/%m/%Y %H:%M:%S')} (локальное время)")
+    
+    scheduled_photo_sender()
+    schedule_next_photo()
+
+
+def run_scheduler():
+    """Запускает планировщик в отдельном потоке"""
+    try:
+        print("Запуск планировщика задач...")
+        schedule.run()
+    except Exception as e:
+        print(f"Ошибка в планировщике: {str(e)}")
+
+
 def recievingFile(fileLink, message):
     fileName = fileLink.split("/")[-1]
 
@@ -443,6 +578,14 @@ def recievingFile(fileLink, message):
 
 
 if __name__ == '__main__':
+    # Запускаем планировщик в отдельном потоке
+    print("Инициализация планировщика автоматической отправки...")
+    schedule_first_photo()  # Планируем первую задачу через минуты
+    
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    print("Планировщик запущен в фоновом режиме")
+    
     while True:
         try:
             # Очищаем кеш при запуске
