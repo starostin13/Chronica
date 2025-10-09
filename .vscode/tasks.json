@@ -1,0 +1,108 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Bot",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"bot.py"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": true,
+				"panel": "new",
+				"showReuseMessage": true,
+				"clear": true
+			},
+			"options": {
+				"shell": {
+					"executable": "powershell.exe",
+					"args": [
+						"-ExecutionPolicy",
+						"Bypass",
+						"-NoProfile",
+						"-Command",
+						"& {Set-Location '${workspaceFolder}'; if (Test-Path '.\\venv\\Scripts\\Activate.ps1') { .\\venv\\Scripts\\Activate.ps1; python bot.py } else { Write-Host 'Virtual environment not found!' -ForegroundColor Red }}"
+					]
+				}
+			},
+			"problemMatcher": [],
+			"isBackground": true
+		},
+		{
+			"label": "Install Dependencies",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& {Set-Location '${workspaceFolder}'; if (Test-Path '.\\venv\\Scripts\\Activate.ps1') { .\\venv\\Scripts\\Activate.ps1; python -m pip install -r requirements.txt } else { Write-Host 'Virtual environment not found!' -ForegroundColor Red }}"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Activate Virtual Environment",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-ExecutionPolicy",
+				"Bypass",
+				"-NoExit",
+				"-Command",
+				"& {Set-Location '${workspaceFolder}'; if (Test-Path '.\\venv\\Scripts\\Activate.ps1') { .\\venv\\Scripts\\Activate.ps1; Write-Host 'Virtual environment activated!' -ForegroundColor Green } else { Write-Host 'Virtual environment not found!' -ForegroundColor Red }}"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": true,
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Test Python Environment",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"-c",
+				"print('Python environment test successful!')"
+			]
+		},
+		{
+			"label": "run_bot_new",
+			"type": "shell",
+			"command": "powershell.exe -ExecutionPolicy Bypass -Command \"cd 'c:\\Users\\staro\\Projects\\Chronica\\Chronica'; .\\venv\\Scripts\\Activate.ps1; python bot.py\"",
+			"isBackground": true,
+			"group": "test"
+		},
+		{
+			"label": "run_bot_simple",
+			"type": "shell",
+			"command": "c:\\Users\\staro\\Projects\\Chronica\\Chronica\\venv\\Scripts\\python.exe",
+			"args": ["bot.py"],
+			"options": {
+				"cwd": "c:\\Users\\staro\\Projects\\Chronica\\Chronica"
+			},
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": true,
+				"panel": "new",
+				"clear": true
+			}
+		}
+	]
+}

@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import os
 from pickle import NONE, TRUE
 import credentials
 import random
+from random import randrange
 import yadisk
 import time
 
@@ -15,12 +16,25 @@ dst = credentials.temp_folder
 
 y = yadisk.YaDisk(token=credentials.yandex_token)
 
-# Кэш для результатов поиска фотографий
-_photo_cache = {
-    'photos': [],
-    'cache_time': 0,
-    'cache_duration': 300  # Кэш на 5 минут
+# Глобальный кеш для результатов сканирования папок
+_folder_scan_cache = {
+    'all_files': [],           # Все найденные медиа файлы
+    'scan_time': 0,           # Время последнего сканирования
+    'cache_expires': 0,       # Время истечения кеша (случайное от 1 до 5 дней)
+    'folders_scanned': 0      # Количество отсканированных папок
 }
+
+
+def clear_photo_cache():
+    """
+    Очищает кеш сканирования папок, принудительно заставляя пересканировать при следующем запросе
+    """
+    global _folder_scan_cache
+    _folder_scan_cache['all_files'] = []
+    _folder_scan_cache['scan_time'] = 0
+    _folder_scan_cache['cache_expires'] = 0
+    _folder_scan_cache['folders_scanned'] = 0
+    print("🗑️ Кеш сканирования папок очищен")
 
 
 def createFolder():
@@ -120,77 +134,146 @@ def find_available_photos(search_by_date=True):
     1. Если search_by_date=True: точное совпадение по дате (день.месяц) из любого года
     2. Если search_by_date=False или нет совпадений по дате: случайные файлы
     Возвращает список найденных файлов
-    Использует кэширование для ускорения повторных запросов
+    Использует умное кеширование результатов сканирования папок на 1-5 дней
     """
-    global _photo_cache
+    global _folder_scan_cache
     
-    # Для случайного поиска не используем кэш дат
-    cache_key = 'date' if search_by_date else 'random'
-    
-    # Проверяем кэш
+    # Проверяем актуальность кеша
     current_time = time.time()
-    if (search_by_date and current_time - _photo_cache['cache_time'] < _photo_cache['cache_duration'] 
-        and _photo_cache['photos']):
-        print(f"Используем кэшированные данные ({len(_photo_cache['photos'])} фотографий)")
-        return _photo_cache['photos']
+    cache_valid = (current_time < _folder_scan_cache['cache_expires'] and 
+                   len(_folder_scan_cache['all_files']) > 0)
     
-    print("Кэш устарел или пуст, выполняем поиск...")
+    if cache_valid:
+        print(f"📦 Используем кешированные данные сканирования папок")
+        print(f"📊 В кеше: {len(_folder_scan_cache['all_files'])} файлов из {_folder_scan_cache['folders_scanned']} папок")
+        all_files = _folder_scan_cache['all_files']
+    else:
+        print("🔄 Кеш устарел или пуст, выполняем полное сканирование папок...")
+        all_files = perform_full_folder_scan()
+    
+    if not all_files:
+        print("❌ Файлов не найдено")
+        return []
+    
+    # Теперь фильтруем уже загруженные файлы по дате
+    if search_by_date:
+        today = date.today()
+        print(f"🔍 Фильтруем файлы по дате: {today.day}.{today.month} (любой год)")
+        
+        date_matches = filter_files_by_date(all_files, today, 0)
+        
+        if date_matches:
+            print(f"✅ Найдено {len(date_matches)} файлов с совпадением по дате {today.day}.{today.month}")
+            return date_matches
+        else:
+            print(f"❌ Файлов с совпадающими датами не найдено")
+            print(f"✅ Используем случайный выбор из {len(all_files)} доступных файлов")
+            return all_files
+    else:
+        print(f"🎲 Случайный выбор из {len(all_files)} файлов")
+        return all_files
+
+
+def perform_full_folder_scan():
+    """
+    Выполняет полное сканирование всех папок и кеширует результат на случайное время (1-5 дней)
+    """
+    global _folder_scan_cache
     
     # Проверка токена Яндекс.Диска
     try:
         if not y.check_token():
-            print("Invalid token")
+            print("❌ Invalid token")
             return []
     except Exception as e:
-        print(f"Ошибка при проверке токена Яндекс.Диска: {str(e)}")
+        print(f"❌ Ошибка при проверке токена Яндекс.Диска: {str(e)}")
         return []
     
     # Информация о текущем использовании диска
     try:
-        print("You already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
+        disk_usage = y.get_disk_info().used_space * (10 ** (-9))
+        print(f"💾 Использование диска: {disk_usage:.2f} GB")
     except Exception as e:
-        print(f"Ошибка при получении информации о диске: {str(e)}")
+        print(f"⚠️ Ошибка при получении информации о диске: {str(e)}")
 
-    # Получаем текущую дату
-    today = date.today()
-    found_photos = []
+    all_files = []
+    
+    try:
+        # Получаем список всех подпапок в основной директории
+        subfolders = list(y.listdir(credentials.main_dirrectory))
+        print(f"📁 Найдено {len(subfolders)} папок для сканирования")
+        
+        # Проходим через все папки и собираем ВСЕ медиа файлы
+        for folder in subfolders:
+            try:
+                files = list(y.listdir(folder.path))
+                print(f"📂 Сканируем папку {folder.name}: {len(files)} файлов")
+                folder_media_count = 0
+                
+                for file in files:
+                    if file.media_type in ["image", "video"]:
+                        all_files.append(file)
+                        folder_media_count += 1
+                
+                print(f"📂 В папке {folder.name}: {folder_media_count} медиа файлов")
+                
+            except Exception as e:
+                print(f"❌ Ошибка при сканировании папки {folder.path}: {str(e)}")
+                continue
+    
+    except Exception as e:
+        print(f"❌ Ошибка при сканировании папок: {str(e)}")
+        return []
+    
+    # Обновляем кеш с новыми данными
+    current_time = time.time()
+    cache_days = randrange(1, 6)  # От 1 до 5 дней
+    cache_duration = cache_days * 24 * 60 * 60  # В секундах
+    
+    _folder_scan_cache['all_files'] = all_files
+    _folder_scan_cache['scan_time'] = current_time
+    _folder_scan_cache['cache_expires'] = current_time + cache_duration
+    _folder_scan_cache['folders_scanned'] = len(subfolders)
+    
+    cache_expire_date = datetime.fromtimestamp(_folder_scan_cache['cache_expires'])
+    print(f"💾 Кеш обновлен: {len(all_files)} файлов, действителен до {cache_expire_date.strftime('%d.%m.%Y %H:%M')} ({cache_days} дней)")
+    
+    return all_files
 
-    # Выбираем стратегию поиска
-    if search_by_date:
-        # Ищем точное совпадение по дню и месяцу (включая текущий год)
-        try:
-            exact_matches = find_files_by_date_range(today, 0)
-            if exact_matches:
-                print(f"Найдено {len(exact_matches)} файлов с точным "
-                      f"совпадением по дате")
-                found_photos = exact_matches
-            else:
-                print("Файлов с совпадающими датами не найдено, "
-                      "собираем все доступные файлы")
-                all_files = collect_all_media_files()
-                if all_files:
-                    print(f"Найдено {len(all_files)} файлов всего")
-                    found_photos = all_files
-        except (yadisk.exceptions.YaDiskError, OSError, ValueError) as e:
-            print(f"Ошибка при поиске файлов: {str(e)}")
-            found_photos = []
-    else:
-        # Сразу собираем все доступные файлы (случайный поиск)
-        try:
-            print("Выполняем случайный поиск файлов")
-            all_files = collect_all_media_files()
-            if all_files:
-                print(f"Найдено {len(all_files)} файлов для случайного выбора")
-                found_photos = all_files
-        except Exception as e:
-            print(f"Ошибка при случайном поиске файлов: {str(e)}")
-            found_photos = []
 
-    # Обновляем кэш
-    _photo_cache['photos'] = found_photos
-    _photo_cache['cache_time'] = current_time
-
-    return found_photos
+def filter_files_by_date(all_files, target_date, day_range):
+    """
+    Фильтрует уже загруженный список файлов по дате
+    """
+    matching_files = []
+    
+    # Создаем список дат для поиска
+    search_dates = []
+    for i in range(-day_range, day_range + 1):
+        search_date = target_date + timedelta(days=i)
+        search_dates.append((search_date.day, search_date.month))
+    
+    print(f"🔍 Фильтруем по датам: {search_dates}")
+    
+    for file in all_files:
+        # Получаем дату съёмки фото (приоритет)
+        if hasattr(file, 'photoslice_time') and file.photoslice_time:
+            photo_date = file.photoslice_time
+            file_date_tuple = (photo_date.day, photo_date.month)
+            
+            if file_date_tuple in search_dates:
+                matching_files.append(file)
+                print(f"✅ Совпадение: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}")
+        elif hasattr(file, 'created') and file.created:
+            # Fallback на дату создания файла
+            created_date = file.created
+            file_date_tuple = (created_date.day, created_date.month)
+            
+            if file_date_tuple in search_dates:
+                matching_files.append(file)
+                print(f"✅ Совпадение (дата создания): {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
+    
+    return matching_files
 
 
 def collect_all_media_files():
@@ -216,14 +299,81 @@ def collect_all_media_files():
     return all_files
 
 
-def clear_photo_cache():
+
+
+
+def find_files_with_date_filtering(target_date, day_range):
     """
-    Принудительно очищает кэш фотографий
+    ЭФФЕКТИВНАЯ функция: за один проход собирает ВСЕ файлы и фильтрует по дате
+    Возвращает: (все_файлы, файлы_по_дате)
     """
-    global _photo_cache
-    _photo_cache['photos'] = []
-    _photo_cache['cache_time'] = 0
-    print("Кэш фотографий очищен")
+    all_files = []
+    matching_files = []
+    
+    try:
+        # Создаем список дат для поиска
+        search_dates = []
+        for i in range(-day_range, day_range + 1):
+            search_date = target_date + timedelta(days=i)
+            search_dates.append((search_date.day, search_date.month))
+        
+        print(f"🔍 Ищем файлы для дат: {search_dates}")
+        
+        # Получаем список всех подпапок в основной директории
+        subfolders = list(y.listdir(credentials.main_dirrectory))
+        print(f"📁 Найдено {len(subfolders)} папок для поиска")
+        
+        # Проходим через все папки и подпапки ОДИН РАЗ
+        for folder in subfolders:
+            try:
+                files = list(y.listdir(folder.path))
+                print(f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов")
+                folder_all_media = 0
+                folder_date_matches = 0
+                
+                for file in files:
+                    # Проверка, является ли файл изображением или видео
+                    if file.media_type in ["image", "video"]:
+                        all_files.append(file)  # Добавляем ВСЕ медиа файлы
+                        folder_all_media += 1
+                        
+                        # Проверяем совпадение по дате
+                        file_matches_date = False
+                        
+                        # Получаем дату съёмки фото (не дату создания файла)
+                        if hasattr(file, 'photoslice_time') and file.photoslice_time:
+                            photo_date = file.photoslice_time
+                            file_date_tuple = (photo_date.day, photo_date.month)
+                            
+                            # Проверяем, попадает ли дата файла в наш диапазон
+                            if file_date_tuple in search_dates:
+                                matching_files.append(file)
+                                folder_date_matches += 1
+                                print(f"✅ Совпадение по дате: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}")
+                                file_matches_date = True
+                        
+                        if not file_matches_date and hasattr(file, 'created') and file.created:
+                            # Fallback на дату создания файла, если нет даты съёмки
+                            created_date = file.created
+                            file_date_tuple = (created_date.day, created_date.month)
+                            
+                            if file_date_tuple in search_dates:
+                                matching_files.append(file)
+                                folder_date_matches += 1
+                                print(f"✅ Совпадение по дате создания: {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
+                
+                print(f"📂 В папке {folder.name}: {folder_all_media} медиа файлов, {folder_date_matches} совпадений по дате")
+                
+            except Exception as e:
+                print(f"❌ Ошибка при обработке папки {folder.path}: {str(e)}")
+                continue
+    
+    except Exception as e:
+        print(f"❌ Ошибка при поиске файлов: {str(e)}")
+        return [], []
+    
+    print(f"🎯 ИТОГО: {len(all_files)} всех медиа файлов, {len(matching_files)} совпадений по дате {target_date.day}.{target_date.month}")
+    return all_files, matching_files
 
 
 def find_files_by_date_range(target_date, day_range):
@@ -239,15 +389,19 @@ def find_files_by_date_range(target_date, day_range):
             search_date = target_date + timedelta(days=i)
             search_dates.append((search_date.day, search_date.month))
         
-        print(f"Ищем файлы для дат: {search_dates}")
+        print(f"🔍 Ищем файлы для дат: {search_dates}")
         
         # Получаем список всех подпапок в основной директории
         subfolders = list(y.listdir(credentials.main_dirrectory))
+        print(f"📁 Найдено {len(subfolders)} папок для поиска")
         
         # Проходим через все папки и подпапки
         for folder in subfolders:
             try:
                 files = list(y.listdir(folder.path))
+                print(f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов")
+                folder_matches = 0
+                
                 for file in files:
                     # Проверка, является ли файл изображением или видео
                     if file.media_type in ["image", "video"]:
@@ -259,7 +413,8 @@ def find_files_by_date_range(target_date, day_range):
                             # Проверяем, попадает ли дата файла в наш диапазон
                             if file_date_tuple in search_dates:
                                 matching_files.append(file)
-                                print(f"Найден файл: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}")
+                                folder_matches += 1
+                                print(f"✅ Найден файл: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}")
                         elif hasattr(file, 'created') and file.created:
                             # Fallback на дату создания файла, если нет даты съёмки
                             created_date = file.created
@@ -267,15 +422,21 @@ def find_files_by_date_range(target_date, day_range):
                             
                             if file_date_tuple in search_dates:
                                 matching_files.append(file)
-                                print(f"Найден файл (по дате создания): {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
+                                folder_matches += 1
+                                print(f"✅ Найден файл (по дате создания): {file.name}, создан {created_date.strftime('%d.%m.%Y')}")
+                
+                if folder_matches > 0:
+                    print(f"📂 В папке {folder.name} найдено {folder_matches} подходящих файлов")
+                
             except Exception as e:
-                print(f"Ошибка при обработке папки {folder.path}: {str(e)}")
+                print(f"❌ Ошибка при обработке папки {folder.path}: {str(e)}")
                 continue
     
     except Exception as e:
-        print(f"Ошибка при поиске файлов по дате: {str(e)}")
+        print(f"❌ Ошибка при поиске файлов по дате: {str(e)}")
         return []
     
+    print(f"🎯 Итого найдено {len(matching_files)} файлов по дате {target_date.day}.{target_date.month}")
     return matching_files
 
 

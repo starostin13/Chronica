@@ -1,3 +1,39 @@
 {
-    "FSharp.suggestGitignore": false
+    "FSharp.suggestGitignore": false,
+    "python.defaultInterpreterPath": "./venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "terminal.integrated.defaultProfile.windows": "Python Env",
+    "terminal.integrated.profiles.windows": {
+        "Python Env": {
+            "source": "PowerShell",
+            "args": [
+                "-ExecutionPolicy", "Bypass",
+                "-NoExit", 
+                "-Command", 
+                "& {Set-Location '${workspaceFolder}'; if (Test-Path '.\\venv\\Scripts\\Activate.ps1') { .\\venv\\Scripts\\Activate.ps1; Write-Host 'Python virtual environment activated' -ForegroundColor Green; Write-Host 'Ready to run: python bot.py' -ForegroundColor Yellow } else { Write-Host 'Virtual environment not found!' -ForegroundColor Red }}"
+            ]
+        },
+        "PowerShell": {
+            "source": "PowerShell"
+        },
+        "Command Prompt": {
+            "path": "cmd.exe",
+            "args": ["/K", "cd /d \"${workspaceFolder}\" && if exist venv\\Scripts\\activate.bat (venv\\Scripts\\activate.bat && echo Virtual environment activated) else (echo Virtual environment not found)"]
+        }
+    },
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.formatting.provider": "black",
+    "files.associations": {
+        "*.py": "python"
+    },
+    "terminal.integrated.automationProfile.windows": {
+        "path": "powershell.exe",
+        "args": [
+            "-NoProfile",
+            "-Command",
+            "& {Set-Location '${workspaceFolder}'; if (Test-Path '.\\venv\\Scripts\\Activate.ps1') { .\\venv\\Scripts\\Activate.ps1 }}"
+        ]
+    }
 }
