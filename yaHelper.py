@@ -105,68 +105,6 @@ def getLastUpdatedFolder():
 
 
 def getPhoto():
-    # Проверка токена Яндекс.Диска
-    try:
-        if not y.check_token():
-            print("Invalid token")
-            return None
-    except Exception as e:
-        print(f"Ошибка при проверке токена Яндекс.Диска: {str(e)}")
-        return None
-    
-    # Информация о текущем использовании диска
-    try:
-        print("You already use " + str(y.get_disk_info().used_space * (10 ** (-9))))
-    except Exception as e:
-        print(f"Ошибка при получении информации о диске: {str(e)}")
-
-    # Получаем текущую дату
-    today = date.today()
-    
-    # Сначала ищем точное совпадение по дню и месяцу
-    try:
-        exact_matches = find_files_by_date_range(today, 0)
-        if exact_matches:
-            selected_file = random.choice(exact_matches)
-            print(f"Найдено точное совпадение по дате: {selected_file.name}")
-            return selected_file
-    except Exception as e:
-        print(f"Ошибка при поиске точного совпадения: {str(e)}")
-    
-    # Если точного совпадения нет, ищем в диапазоне ±1 день
-    try:
-        print("Точного совпадения не найдено, ищем в диапазоне ±1 день")
-        range_matches = find_files_by_date_range(today, 1)
-        if range_matches:
-            selected_file = random.choice(range_matches)
-            print(f"Найдено совпадение в диапазоне ±1 день: {selected_file.name}")
-            return selected_file
-    except Exception as e:
-        print(f"Ошибка при поиске в диапазоне ±1 день: {str(e)}")
-    
-    # Если и в диапазоне ничего нет, ищем в более широком диапазоне ±2 дня
-    try:
-        print("В диапазоне ±1 день не найдено, ищем в диапазоне ±2 дня")
-        wider_matches = find_files_by_date_range(today, 2)
-        if wider_matches:
-            selected_file = random.choice(wider_matches)
-            print(f"Найдено совпадение в диапазоне ±2 дня: {selected_file.name}")
-            return selected_file
-    except Exception as e:
-        print(f"Ошибка при поиске в диапазоне ±2 дня: {str(e)}")
-    
-    # Если не найдено ни одного совпадающего файла, используем обычную логику
-    try:
-        print("Файлов с совпадающими датами не найдено, выбираем случайный файл")
-        subfolders = list(y.listdir(credentials.main_dirrectory))
-        random.shuffle(subfolders)
-        return digToSubfolder(random.choice(subfolders))
-    except Exception as e:
-        print(f"Ошибка при выборе случайного файла: {str(e)}")
-        return None
-
-
-def getPhoto():
     """
     Совместимость со старым кодом - возвращает одно случайное фото
     """
@@ -216,22 +154,24 @@ def find_available_photos(search_by_date=True):
     # Получаем текущую дату
     today = date.today()
     found_photos = []
-    
+
     # Выбираем стратегию поиска
     if search_by_date:
         # Ищем точное совпадение по дню и месяцу (включая текущий год)
         try:
             exact_matches = find_files_by_date_range(today, 0)
             if exact_matches:
-                print(f"Найдено {len(exact_matches)} файлов с точным совпадением по дате")
+                print(f"Найдено {len(exact_matches)} файлов с точным "
+                      f"совпадением по дате")
                 found_photos = exact_matches
             else:
-                print("Файлов с совпадающими датами не найдено, собираем все доступные файлы")
+                print("Файлов с совпадающими датами не найдено, "
+                      "собираем все доступные файлы")
                 all_files = collect_all_media_files()
                 if all_files:
                     print(f"Найдено {len(all_files)} файлов всего")
                     found_photos = all_files
-        except Exception as e:
+        except (yadisk.exceptions.YaDiskError, OSError, ValueError) as e:
             print(f"Ошибка при поиске файлов: {str(e)}")
             found_photos = []
     else:
@@ -245,11 +185,11 @@ def find_available_photos(search_by_date=True):
         except Exception as e:
             print(f"Ошибка при случайном поиске файлов: {str(e)}")
             found_photos = []
-    
+
     # Обновляем кэш
     _photo_cache['photos'] = found_photos
     _photo_cache['cache_time'] = current_time
-    
+
     return found_photos
 
 
