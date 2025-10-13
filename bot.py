@@ -319,22 +319,20 @@ def send_welcome(message):
                                 )
                                 os.remove(dst + "validated.jpg")
                             else:
-                                # Изображение корректно, отправляем как есть
-                                bot.send_photo(
-                                    chat_id, photo.file, caption=comment
-                                )
+                                # Изображение корректно, отправляем локальный файл
+                                with open(dst + photo.name, "rb") as f:
+                                    bot.send_photo(chat_id, f, caption=comment)
 
                         os.remove(dst + photo.name)
                     except Exception as e:
                         print(
                             f"Ошибка при проверке размеров изображения: {str(e)}"
                         )
-                        # Fallback - пытаемся отправить как есть, но только если это не HEIC
+                        # Fallback - пытаемся отправить локальный файл как есть, но только если это не HEIC
                         if not photo.name.lower().endswith(".heic"):
                             try:
-                                bot.send_photo(
-                                    chat_id, photo.file, caption=comment
-                                )
+                                with open(dst + photo.name, "rb") as f:
+                                    bot.send_photo(chat_id, f, caption=comment)
                             except Exception as fallback_e:
                                 print(
                                     f"Не удалось отправить изображение: {str(fallback_e)}"
@@ -389,7 +387,13 @@ def send_welcome(message):
                         if os.path.exists(dst + photo.name):
                             os.remove(dst + photo.name)
                 else:
-                    bot.send_video(chat_id, photo.file, caption=comment)
+                    # Скачиваем и отправляем видео локально
+                    if downloadFile(photo.file, photo.name):
+                        with open(dst + photo.name, "rb") as f:
+                            bot.send_video(chat_id, f, caption=comment)
+                        os.remove(dst + photo.name)
+                    else:
+                        print(f"Не удалось скачать видео {photo.name}")
             # Если успешно отправили фото, выходим из цикла
             return
 
@@ -753,9 +757,10 @@ def send_image_file(chat_id, photo, comment):
                     os.remove(file_path)
                     return False
             else:
-                # Пытаемся отправить напрямую
+                # Пытаемся отправить локальный файл
                 try:
-                    bot.send_photo(chat_id, photo.file, caption=comment)
+                    with open(file_path, "rb") as f:
+                        bot.send_photo(chat_id, f, caption=comment)
                 except:
                     # Если не получилось, валидируем и пробуем снова
                     if validate_and_fix_image(
@@ -768,7 +773,9 @@ def send_image_file(chat_id, photo, comment):
                         )
                         os.remove(dst + "validated.jpg")
                     else:
-                        bot.send_photo(chat_id, photo.file, caption=comment)
+                        # В крайнем случае пробуем отправить как есть
+                        with open(file_path, "rb") as f:
+                            bot.send_photo(chat_id, f, caption=comment)
 
         os.remove(file_path)
         return True
@@ -804,12 +811,24 @@ def send_video_file(chat_id, photo, comment):
                     os.remove(file_path)
                 return False
         else:
-            # Пытаемся отправить по ссылке
+            # Скачиваем и отправляем локальный файл
+            if not downloadFile(photo.file, photo.name):
+                print(f"Не удалось скачать видео {photo.name}")
+                return False
+
+            file_path = dst + photo.name
+            if not os.path.exists(file_path):
+                print(f"Видео файл {photo.name} не найден после скачивания")
+                return False
+
             try:
-                bot.send_video(chat_id, photo.file, caption=comment)
+                bot.send_video(chat_id, open(file_path, "rb"), caption=comment)
+                os.remove(file_path)
                 return True
             except Exception as e:
-                print(f"Ошибка при отправке видео по ссылке: {str(e)}")
+                print(f"Ошибка при отправке видео: {str(e)}")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                 return False
 
     except Exception as e:
@@ -1028,16 +1047,8 @@ def periodic_task():
     chat_ids = [id.strip() for id in credentials.chat_ids.split(",")]
     print(f"📱 Настроено чатов для отправки: {len(chat_ids)}")
 
-    # Отправляем фото в каждый чат
-    for chat_id in chat_ids:
-        print(f"📤 Отправка в чат {chat_id}")
-        send_welcome(
-            type(
-                "obj",
-                (object,),
-                {"chat": type("obj", (object,), {"id": chat_id})},
-            )
-        )
+    # Отправляем фото во все настроенные чаты с правильной логикой
+    scheduled_photo_sender()
 
     # Планируем следующий запуск через случайный интервал от 1 до 24 часов
     delay_hours = random.randint(1, 24)
