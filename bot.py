@@ -732,9 +732,6 @@ if __name__ == '__main__':
         f"Первая автоматическая отправка запланирована через {initial_delay_seconds / 60:.2f} минут")
     schedule.enter(initial_delay_seconds, 1, periodic_task)
 
-    # Запускаем планировщик в отдельном потоке
-    Thread(target=schedule_checker).start()
-
     # Запускаем бота
     while True:
         try:
