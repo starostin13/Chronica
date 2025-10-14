@@ -48,6 +48,17 @@ def createFolder():
         return "ErrorFolder_" + str(date.today().day)
 
 
+def digToSubfolder(item):
+    if item.type == "dir":
+        li = list(y.listdir(item.path))
+        random.shuffle(li)
+        rand = random.choice(li)
+        return digToSubfolder(rand)
+    if item.media_type == "image" or item.media_type == "video":
+        return item
+    return NONE
+
+
 def downloadFile(url, fileName, max_retries=3):
     """
     Скачивает файл с Yandex Disk с повторными попытками
