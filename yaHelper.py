@@ -187,9 +187,56 @@ def find_available_photos(search_by_date=True):
         return all_files
 
 
+def scan_folder_recursively(folder_path, folder_name="", depth=0):
+    """
+    Рекурсивно сканирует папку и все её подпапки, собирая медиа файлы
+
+    Args:
+        folder_path: Путь к папке для сканирования
+        folder_name: Имя папки (для логирования)
+        depth: Текущая глубина рекурсии (для отступов в логах)
+
+    Returns:
+        Список найденных медиа файлов
+    """
+    indent = "  " * depth
+    media_files = []
+
+    try:
+        items = list(y.listdir(folder_path))
+        print(
+            f"{indent}📂 Сканируем {folder_name or folder_path}: {len(items)} элементов"
+        )
+
+        for item in items:
+            try:
+                if item.type == "dir":
+                    # Рекурсивно сканируем подпапку
+                    subfolder_files = scan_folder_recursively(
+                        item.path, item.name, depth + 1
+                    )
+                    media_files.extend(subfolder_files)
+                elif item.media_type in ["image", "video"]:
+                    # Это медиа файл - добавляем его
+                    media_files.append(item)
+            except Exception as e:
+                print(f"{indent}❌ Ошибка при обработке {item.path}: {str(e)}")
+                continue
+
+        if depth == 0 or len(media_files) > 0:
+            print(
+                f"{indent}✅ В {folder_name or folder_path}: {len(media_files)} медиа файлов"
+            )
+
+    except Exception as e:
+        print(f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}")
+
+    return media_files
+
+
 def perform_full_folder_scan():
     """
-    Выполняет полное сканирование всех папок и кеширует результат на случайное время (1-5 дней)
+    Выполняет полное рекурсивное сканирование всех папок и кеширует результат на случайное время (1-5 дней)
     """
     global _folder_scan_cache
 
@@ -214,22 +261,17 @@ def perform_full_folder_scan():
     try:
         # Получаем список всех подпапок в основной директории
         subfolders = list(y.listdir(credentials.main_dirrectory))
-        print(f"📁 Найдено {len(subfolders)} папок для сканирования")
+        print(
+            f"📁 Найдено {len(subfolders)} папок верхнего уровня для рекурсивного сканирования"
+        )
 
-        # Проходим через все папки и собираем ВСЕ медиа файлы
+        # Рекурсивно проходим через все папки и собираем ВСЕ медиа файлы
         for folder in subfolders:
             try:
-                files = list(y.listdir(folder.path))
-                print(f"📂 Сканируем папку {folder.name}: {len(files)} файлов")
-                folder_media_count = 0
-
-                for file in files:
-                    if file.media_type in ["image", "video"]:
-                        all_files.append(file)
-                        folder_media_count += 1
-
-                print(f"📂 В папке {folder.name}: {folder_media_count} медиа файлов")
-
+                folder_files = scan_folder_recursively(
+                    folder.path, folder.name, depth=0
+                )
+                all_files.extend(folder_files)
             except Exception as e:
                 print(f"❌ Ошибка при сканировании папки {folder.path}: {str(e)}")
                 continue
