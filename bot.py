@@ -490,7 +490,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Уменьшаем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -501,7 +501,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Увеличиваем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -517,7 +517,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Корректируем соотношение сторон с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -527,7 +527,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
             int(image_width / (2 * memorySizeRatio)),
             int(image_height / (2 * memorySizeRatio)),
         ),
-        PIL.Image.LANCZOS,
+        Image.LANCZOS,
     )
 
     # Финальная проверка размеров после сжатия
@@ -537,7 +537,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
             f"Размеры после сжатия слишком малы: {final_width}x{final_height}, устанавливаем минимальные"
         )
         my_image = my_image.resize(
-            (max(final_width, 1), max(final_height, 1)), PIL.Image.LANCZOS
+            (max(final_width, 1), max(final_height, 1)), Image.LANCZOS
         )
 
     print(
@@ -630,7 +630,7 @@ def apply_size_validation(img):
         print(
             f"Уменьшаем изображение с {width}x{height} до {new_width}x{new_height}"
         )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     # Проверяем минимальные размеры
     if width < min_dimension or height < min_dimension:
@@ -639,7 +639,7 @@ def apply_size_validation(img):
         print(
             f"Увеличиваем изображение с {width}x{height} до {new_width}x{new_height}"
         )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     # Проверяем соотношение сторон
     aspect_ratio = max(width / height, height / width)
@@ -653,7 +653,7 @@ def apply_size_validation(img):
         print(
             f"Корректируем соотношение сторон с {width}x{height} до {new_width}x{new_height}"
         )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     return img
 
