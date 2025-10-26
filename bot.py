@@ -4,15 +4,14 @@
 # vim:fileencoding=utf-8
 from datetime import date, datetime, timedelta
 import os
-from random import randrange
 import random
+from random import randrange
 from PIL import Image, ExifTags
 import sched
+import signal
 import time
 import threading
-from random import randrange
 import pytz
-from PIL import Image, ExifTags
 import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -32,6 +31,23 @@ bot = telebot.TeleBot(bot_token)
 dst = credentials.temp_folder
 schedule = sched.scheduler(time.time, time.sleep)
 
+# Событие для корректной остановки бота
+shutdown_event = threading.Event()
+
+
+def signal_handler(sig, frame):
+    """Обработчик сигнала прерывания (Ctrl+C)"""
+    print("\n🛑 Получен сигнал остановки. Завершаем работу бота...")
+    shutdown_event.set()
+    
+    # Принудительный выход
+    import sys
+    sys.exit(0)
+
+
+# Устанавливаем обработчик сигнала
+signal.signal(signal.SIGINT, signal_handler)
+
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -41,21 +57,246 @@ def callback_query(call):
     for entry in os.listdir(dst):
         if os.path.isfile(os.path.join(dst, entry)):
             if call.data == "new":
-                saveFileTo(
-                    os.path.join(dst, entry), newFolderName + "/" + entry
-                )
+                saveFileTo(os.path.join(dst, entry), newFolderName + "/" + entry)
             elif call.data != "decline":
                 saveFileTo(os.path.join(dst, entry), call.data + "/" + entry)
             os.remove(os.path.join(dst, entry))
+
+
+def generate_photo_caption(photo):
+    """Генерирует подпись для фотографии на основе её метаданных"""
+    photo_path_splited = photo.path.split("/")
+    folder_name = photo_path_splited[len(photo_path_splited) - 2]
+
+    if photo.photoslice_time is None:
+        return f"Это {folder_name}"
+
+    from datetime import date
+
+    today = date.today()
+    photo_date = photo.photoslice_time.date()
+
+    # Проверяем, совпадает ли дата фото с сегодняшним днем и месяцем
+    if (
+        photo_date.day == today.day
+        and photo_date.month == today.month
+        and photo_date.year == today.year
+    ):
+        return f"Это {folder_name}. Произошло сегодня!"
+    elif photo_date.day == today.day and photo_date.month == today.month:
+        return f"Это {folder_name}. Дело было в этот день в {photo.photoslice_time.year} году"
+    else:
+        month_name = numberToMonthNameRu(photo.photoslice_time.month)
+        return f"Это {folder_name}. Дело было в {month_name} {photo.photoslice_time.year} года"
+
+
+def try_send_large_image(chat_id, photo, comment, available_photos):
+    """
+    Пытается отправить большое изображение (>= 5MB)
+    Возвращает True если успешно отправлено, False если нужно попробовать другой файл
+    """
+    memorySizeRatio = 5 / ((photo.size / 1000) / 1024)
+
+    # Проверяем успешность скачивания
+    if not downloadFile(photo.file, photo.name):
+        print(f"Не удалось скачать большой файл {photo.name}")
+        available_photos.remove(photo)
+        return False
+
+    # Проверяем, что файл существует после скачивания
+    if not os.path.exists(dst + photo.name):
+        print(f"Файл {photo.name} не найден после скачивания")
+        available_photos.remove(photo)
+        return False
+
+    temp_compressed = dst + "compressed.jpg"
+
+    # Обработка HEIC файлов
+    if photo.name.lower().endswith(".heic"):
+        print(f"Обнаружен большой HEIC файл: {photo.name}")
+        try:
+            import pillow_heif
+
+            pillow_heif.register_heif_opener()
+
+            with Image.open(dst + photo.name) as my_image:
+                if my_image.mode != "RGB":
+                    my_image = my_image.convert("RGB")
+                my_image = process_image_with_validation(my_image, memorySizeRatio)
+                my_image.save(temp_compressed, "JPEG", quality=85, optimize=True)
+
+            bot.send_photo(chat_id, open(temp_compressed, "rb"), caption=comment)
+            # Отправка успешна - удаляем файлы
+            os.remove(dst + photo.name)
+            os.remove(temp_compressed)
+            return True
+
+        except ImportError:
+            print("pillow-heif не установлен, пропускаем HEIC файл")
+            bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
+            if os.path.exists(temp_compressed):
+                os.remove(temp_compressed)
+            available_photos.remove(photo)
+            return False
+        except Exception as e:
+            print(f"Ошибка при обработке HEIC файла: {str(e)}")
+            bot.send_message(chat_id, f"Ошибка обработки изображения: {comment}")
+            if os.path.exists(temp_compressed):
+                os.remove(temp_compressed)
+            available_photos.remove(photo)
+            return False
+    else:
+        # Обычная обработка для поддерживаемых форматов
+        try:
+            with Image.open(dst + photo.name) as my_image:
+                my_image = process_image_with_validation(my_image, memorySizeRatio)
+                my_image.save(temp_compressed, quality=85, optimize=True)
+
+            bot.send_photo(chat_id, open(temp_compressed, "rb"), caption=comment)
+            # Отправка успешна - удаляем файлы
+            os.remove(dst + photo.name)
+            os.remove(temp_compressed)
+            return True
+        except Exception as e:
+            print(f"Ошибка при обработке изображения: {str(e)}")
+            bot.send_message(chat_id, f"Изображение повреждено: {comment}")
+            if os.path.exists(temp_compressed):
+                os.remove(temp_compressed)
+            available_photos.remove(photo)
+            return False
+
+
+def try_send_small_image(chat_id, photo, comment, available_photos):
+    """
+    Пытается отправить небольшое изображение (< 5MB)
+    Возвращает True если успешно отправлено, False если нужно попробовать другой файл
+    """
+    temp_heic = dst + "heic_converted.jpg"
+    temp_validated = dst + "validated.jpg"
+
+    try:
+        # Проверяем успешность скачивания
+        if not downloadFile(photo.file, photo.name):
+            print(f"Не удалось скачать файл {photo.name}")
+            bot.send_message(chat_id, f"Не удалось скачать изображение: {comment}")
+            available_photos.remove(photo)
+            return False
+
+        # Проверяем, что файл существует после скачивания
+        if not os.path.exists(dst + photo.name):
+            print(f"Файл {photo.name} не найден после скачивания")
+            bot.send_message(chat_id, f"Изображение повреждено при загрузке: {comment}")
+            available_photos.remove(photo)
+            return False
+
+        # Проверяем, является ли файл HEIC
+        if photo.name.lower().endswith(".heic"):
+            print(f"Обнаружен небольшой HEIC файл: {photo.name}")
+            try:
+                import pillow_heif
+
+                pillow_heif.register_heif_opener()
+
+                with Image.open(dst + photo.name) as heic_image:
+                    if heic_image.mode != "RGB":
+                        heic_image = heic_image.convert("RGB")
+                    validated_img = apply_size_validation(heic_image)
+                    validated_img.save(temp_heic, "JPEG", quality=85, optimize=True)
+
+                bot.send_photo(chat_id, open(temp_heic, "rb"), caption=comment)
+                # Отправка успешна - удаляем файлы
+                os.remove(temp_heic)
+                os.remove(dst + photo.name)
+                return True
+
+            except ImportError:
+                print("pillow-heif не установлен, пропускаем HEIC файл")
+                bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
+                available_photos.remove(photo)
+                return False
+            except Exception as e:
+                print(f"Ошибка при обработке HEIC файла: {str(e)}")
+                bot.send_message(chat_id, f"Ошибка обработки HEIC: {comment}")
+                if os.path.exists(temp_heic):
+                    os.remove(temp_heic)
+                available_photos.remove(photo)
+                return False
+        else:
+            # Используем нашу функцию валидации для обычных форматов
+            if validate_and_fix_image(dst + photo.name, temp_validated):
+                # Изображение было исправлено
+                bot.send_photo(chat_id, open(temp_validated, "rb"), caption=comment)
+                os.remove(temp_validated)
+                os.remove(dst + photo.name)
+                return True
+            else:
+                # Изображение корректно, отправляем локальный файл
+                with open(dst + photo.name, "rb") as f:
+                    bot.send_photo(chat_id, f, caption=comment)
+                os.remove(dst + photo.name)
+                return True
+
+    except Exception as e:
+        print(f"Ошибка при проверке размеров изображения: {str(e)}")
+        # Удаляем только временные файлы если они были созданы
+        if os.path.exists(temp_heic):
+            os.remove(temp_heic)
+        if os.path.exists(temp_validated):
+            os.remove(temp_validated)
+
+        # Fallback - пытаемся отправить локальный файл как есть
+        if not photo.name.lower().endswith(".heic"):
+            try:
+                with open(dst + photo.name, "rb") as f:
+                    bot.send_photo(chat_id, f, caption=comment)
+                os.remove(dst + photo.name)
+                return True
+            except Exception as fallback_e:
+                print(f"Не удалось отправить изображение: {str(fallback_e)}")
+                bot.send_message(chat_id, f"Изображение слишком большое: {comment}")
+        else:
+            bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
+
+        available_photos.remove(photo)
+        return False
+
+
+def try_send_video(chat_id, photo, comment, available_photos):
+    """
+    Пытается отправить видео
+    Возвращает True если успешно отправлено, False если нужно попробовать другой файл
+    """
+    # Проверяем успешность скачивания видео
+    if not downloadFile(photo.file, photo.name):
+        print(f"Не удалось скачать видео файл {photo.name}")
+        bot.send_message(chat_id, f"Не удалось скачать видео: {comment}")
+        available_photos.remove(photo)
+        return False
+
+    # Проверяем, что файл существует после скачивания
+    if not os.path.exists(dst + photo.name):
+        print(f"Видео файл {photo.name} не найден после скачивания")
+        bot.send_message(chat_id, f"Видео повреждено при загрузке: {comment}")
+        available_photos.remove(photo)
+        return False
+
+    try:
+        bot.send_video(chat_id, open(dst + photo.name, "rb"), caption=comment)
+        # Отправка успешна - удаляем файл
+        os.remove(dst + photo.name)
+        return True
+    except Exception as video_e:
+        print(f"Ошибка при отправке видео: {str(video_e)}")
+        bot.send_message(chat_id, f"Видео слишком большое для отправки: {comment}")
+        available_photos.remove(photo)
+        return False
 
 
 @bot.message_handler(commands=["start", "hello"])
 def send_welcome(message):
     # Проверяем, из какого чата пришла команда
     chat_id = str(message.chat.id)
-    configured_chat_ids = [
-        id.strip() for id in credentials.chat_ids.split(",")
-    ]
+    configured_chat_ids = [id.strip() for id in credentials.chat_ids.split(",")]
 
     # Выбираем стратегию поиска в зависимости от чата
     if chat_id in configured_chat_ids:
@@ -85,317 +326,49 @@ def send_welcome(message):
 
     while attempts < max_attempts:
         attempts += 1
-        try:
-            # Выбираем случайное фото из доступных
-            if not available_photos:
-                bot.send_message(
-                    chat_id, "Закончились доступные фотографии для отправки."
-                )
-                return
 
-            photo = random.choice(available_photos)
-
-            # Проверяем, что photo не None
-            if photo is None:
-                (
-                    available_photos.remove(photo)
-                    if photo in available_photos
-                    else None
-                )
-                continue
-
-            print(f"Попытка {attempts}: Sending " + photo.file)
-            photo_path_splited = photo.path.split("/")
-            if photo.photoslice_time is None:
-                comment = (
-                    "Это " + photo_path_splited[len(photo_path_splited) - 2]
-                )
-            else:
-                from datetime import date
-
-                today = date.today()
-                photo_date = photo.photoslice_time.date()
-
-                # Проверяем, совпадает ли дата фото с сегодняшним днем и месяцем
-                if (
-                    photo_date.day == today.day
-                    and photo_date.month == today.month
-                    and photo_date.year == today.year
-                ):
-                    comment = (
-                        "Это %s. Произошло сегодня!"
-                        % photo_path_splited[len(photo_path_splited) - 2]
-                    )
-                elif (
-                    photo_date.day == today.day
-                    and photo_date.month == today.month
-                ):
-                    comment = "Это %s. Дело было в этот день в %s году" % (
-                        photo_path_splited[len(photo_path_splited) - 2],
-                        photo.photoslice_time.year,
-                    )
-                else:
-                    comment = "Это %s. Дело было в %s %s года" % (
-                        photo_path_splited[len(photo_path_splited) - 2],
-                        numberToMonthNameRu(photo.photoslice_time.month),
-                        photo.photoslice_time.year,
-                    )
-
-            photoSizeMb = (photo.size / 1000) / 1024
-            if photo.media_type == "image":
-                if photoSizeMb >= 5:
-                    memorySizeRatio = 5 / photoSizeMb
-
-                    # Проверяем успешность скачивания
-                    if not downloadFile(photo.file, photo.name):
-                        print(f"Не удалось скачать большой файл {photo.name}")
-                        # Убираем проблемный файл
-                        available_photos.remove(photo)
-                        continue
-
-                    # Проверяем, что файл существует после скачивания
-                    if not os.path.exists(dst + photo.name):
-                        print(f"Файл {photo.name} не найден после скачивания")
-                        # Убираем проблемный файл
-                        available_photos.remove(photo)
-                        continue
-
-                # Проверяем формат файла
-                if photo.name.lower().endswith(".heic"):
-                    print(f"Обнаружен большой HEIC файл: {photo.name}")
-                    try:
-                        import pillow_heif
-
-                        pillow_heif.register_heif_opener()
-
-                        with Image.open(dst + photo.name) as my_image:
-                            # Конвертируем в RGB если необходимо
-                            if my_image.mode != "RGB":
-                                my_image = my_image.convert("RGB")
-
-                            # Применяем обработку EXIF и изменение размеров
-                            my_image = process_image_with_validation(
-                                my_image, memorySizeRatio
-                            )
-
-                            # Сохраняем как JPEG
-                            my_image.save(
-                                dst + "compressed.jpg",
-                                "JPEG",
-                                quality=85,
-                                optimize=True,
-                            )
-                            bot.send_photo(
-                                chat_id,
-                                open(dst + "compressed.jpg", "rb"),
-                                caption=comment,
-                            )
-                            os.remove(dst + photo.name)
-                            os.remove(dst + "compressed.jpg")
-
-                    except ImportError:
-                        print(
-                            "pillow-heif не установлен, пропускаем HEIC файл"
-                        )
-                        bot.send_message(
-                            chat_id,
-                            f"Формат HEIC не поддерживается: {comment}",
-                        )
-                        os.remove(dst + photo.name)
-                    except Exception as e:
-                        print(f"Ошибка при обработке HEIC файла: {str(e)}")
-                        bot.send_message(
-                            chat_id, f"Ошибка обработки изображения: {comment}"
-                        )
-                        os.remove(dst + photo.name)
-            else:
-                # Обычная обработка для поддерживаемых форматов
-                try:
-                    with Image.open(dst + photo.name) as my_image:
-                        my_image = process_image_with_validation(
-                            my_image, memorySizeRatio
-                        )
-                        my_image.save(
-                            dst + "compressed.jpg", quality=85, optimize=True
-                        )
-                        bot.send_photo(
-                            chat_id,
-                            open(dst + "compressed.jpg", "rb"),
-                            caption=comment,
-                        )
-                        os.remove(dst + photo.name)
-                        os.remove(dst + "compressed.jpg")
-                except Exception as e:
-                    print(f"Ошибка при обработке изображения: {str(e)}")
-                    bot.send_message(
-                        chat_id, f"Изображение повреждено: {comment}"
-                    )
-                    os.remove(dst + photo.name)
-                else:
-                    # Для небольших файлов тоже проверяем размеры перед отправкой
-                    try:
-                        # Проверяем успешность скачивания
-                        if not downloadFile(photo.file, photo.name):
-                            print(f"Не удалось скачать файл {photo.name}")
-                            bot.send_message(
-                                chat_id,
-                                f"Не удалось скачать изображение: {comment}",
-                            )
-                            return
-
-                        # Проверяем, что файл существует после скачивания
-                        if not os.path.exists(dst + photo.name):
-                            print(
-                                f"Файл {photo.name} не найден после скачивания"
-                            )
-                            bot.send_message(
-                                chat_id,
-                                f"Изображение повреждено при загрузке: {comment}",
-                            )
-                            return
-
-                        # Проверяем, является ли файл HEIC
-                        if photo.name.lower().endswith(".heic"):
-                            print(
-                                f"Обнаружен небольшой HEIC файл: {photo.name}"
-                            )
-                            try:
-                                import pillow_heif
-
-                                pillow_heif.register_heif_opener()
-
-                                with Image.open(
-                                    dst + photo.name
-                                ) as heic_image:
-                                    # Конвертируем в RGB если необходимо
-                                    if heic_image.mode != "RGB":
-                                        heic_image = heic_image.convert("RGB")
-
-                                    # Применяем валидацию размеров
-                                    validated_img = apply_size_validation(
-                                        heic_image
-                                    )
-
-                                    # Сохраняем как JPEG
-                                    validated_img.save(
-                                        dst + "heic_converted.jpg",
-                                        "JPEG",
-                                        quality=85,
-                                        optimize=True,
-                                    )
-                                    bot.send_photo(
-                                        chat_id,
-                                        open(dst + "heic_converted.jpg", "rb"),
-                                        caption=comment,
-                                    )
-                                    os.remove(dst + "heic_converted.jpg")
-
-                            except ImportError:
-                                print(
-                                    "pillow-heif не установлен, пропускаем HEIC файл"
-                                )
-                                bot.send_message(
-                                    chat_id,
-                                    f"Формат HEIC не поддерживается: {comment}",
-                                )
-                            except Exception as e:
-                                print(
-                                    f"Ошибка при обработке HEIC файла: {str(e)}"
-                                )
-                                bot.send_message(
-                                    chat_id,
-                                    f"Ошибка обработки HEIC: {comment}",
-                                )
-                        else:
-                            # Используем нашу функцию валидации для обычных форматов
-                            if validate_and_fix_image(
-                                dst + photo.name, dst + "validated.jpg"
-                            ):
-                                # Изображение было исправлено
-                                bot.send_photo(
-                                    chat_id,
-                                    open(dst + "validated.jpg", "rb"),
-                                    caption=comment,
-                                )
-                                os.remove(dst + "validated.jpg")
-                            else:
-                                # Изображение корректно, отправляем локальный файл
-                                with open(dst + photo.name, "rb") as f:
-                                    bot.send_photo(chat_id, f, caption=comment)
-
-                        os.remove(dst + photo.name)
-                    except Exception as e:
-                        print(
-                            f"Ошибка при проверке размеров изображения: {str(e)}"
-                        )
-                        # Fallback - пытаемся отправить локальный файл как есть, но только если это не HEIC
-                        if not photo.name.lower().endswith(".heic"):
-                            try:
-                                with open(dst + photo.name, "rb") as f:
-                                    bot.send_photo(chat_id, f, caption=comment)
-                            except Exception as fallback_e:
-                                print(
-                                    f"Не удалось отправить изображение: {str(fallback_e)}"
-                                )
-                                bot.send_message(
-                                    chat_id,
-                                    f"Изображение слишком большое: {comment}",
-                                )
-                        else:
-                            bot.send_message(
-                                chat_id,
-                                f"Формат HEIC не поддерживается: {comment}",
-                            )
-            if photo.media_type == "video":
-                if (
-                    "gp3" in photo.name
-                    or "mp4" in photo.name
-                    or "avi" in photo.name
-                ):
-                    # Проверяем успешность скачивания видео
-                    if not downloadFile(photo.file, photo.name):
-                        print(f"Не удалось скачать видео файл {photo.name}")
-                        bot.send_message(
-                            chat_id, f"Не удалось скачать видео: {comment}"
-                        )
-                        return
-
-                    # Проверяем, что файл существует после скачивания
-                    if not os.path.exists(dst + photo.name):
-                        print(
-                            f"Видео файл {photo.name} не найден после скачивания"
-                        )
-                        bot.send_message(
-                            chat_id,
-                            f"Видео повреждено при загрузке: {comment}",
-                        )
-                        return
-
-                    try:
-                        bot.send_video(
-                            chat_id,
-                            open(dst + photo.name, "rb"),
-                            caption=comment,
-                        )
-                        os.remove(dst + photo.name)
-                    except Exception as video_e:
-                        print(f"Ошибка при отправке видео: {str(video_e)}")
-                        bot.send_message(
-                            chat_id,
-                            f"Видео слишком большое для отправки: {comment}",
-                        )
-                        if os.path.exists(dst + photo.name):
-                            os.remove(dst + photo.name)
-                else:
-                    # Скачиваем и отправляем видео локально
-                    if downloadFile(photo.file, photo.name):
-                        with open(dst + photo.name, "rb") as f:
-                            bot.send_video(chat_id, f, caption=comment)
-                        os.remove(dst + photo.name)
-                    else:
-                        print(f"Не удалось скачать видео {photo.name}")
-            # Если успешно отправили фото, выходим из цикла
+        # Проверяем, остались ли доступные фото
+        if not available_photos:
+            bot.send_message(chat_id, "Закончились доступные фотографии для отправки.")
             return
+
+        # Выбираем случайное фото из доступных
+        photo = random.choice(available_photos)
+
+        # Проверяем, что photo не None
+        if photo is None:
+            if photo in available_photos:
+                available_photos.remove(photo)
+            continue
+
+        print(f"Попытка {attempts}: Sending {photo.file}")
+
+        # Генерируем подпись для фото
+        comment = generate_photo_caption(photo)
+
+        try:
+            # Обрабатываем в зависимости от типа медиа
+            photo_size_mb = (photo.size / 1000) / 1024
+            success = False
+
+            if photo.media_type == "image":
+                if photo_size_mb >= 5:
+                    # Большое изображение
+                    success = try_send_large_image(
+                        chat_id, photo, comment, available_photos
+                    )
+                else:
+                    # Небольшое изображение
+                    success = try_send_small_image(
+                        chat_id, photo, comment, available_photos
+                    )
+            elif photo.media_type == "video":
+                # Видео
+                success = try_send_video(chat_id, photo, comment, available_photos)
+
+            # Если отправка успешна, выходим из цикла попыток
+            if success:
+                return
 
         except Exception as exc:
             exceptionText = getattr(exc, "description", str(exc))
@@ -410,6 +383,29 @@ def send_welcome(message):
     bot.send_message(
         chat_id, "Не удалось отправить фотографию после нескольких попыток."
     )
+
+
+@bot.message_handler(commands=["stop"])
+def stop_bot(message):
+    """Команда для остановки бота"""
+    
+    # Проверяем, что команда пришла от разрешенного чата
+    chat_id = str(message.chat.id)
+    configured_chat_ids = [
+        id.strip() for id in credentials.chat_ids.split(",")
+    ]
+    
+    if chat_id in configured_chat_ids:
+        print(f"🛑 Получена команда остановки от разрешенного чата {chat_id}")
+        bot.send_message(chat_id, "🛑 Останавливаю бота...")
+        shutdown_event.set()
+        
+        # Выходим из процесса
+        import sys
+        sys.exit(0)
+    else:
+        print(f"❌ Попытка остановки от неразрешенного чата {chat_id}")
+        bot.send_message(chat_id, "❌ У вас нет прав для остановки бота")
 
 
 @bot.message_handler(content_types=["video"])
@@ -482,15 +478,13 @@ def process_image_with_validation(my_image, memorySizeRatio):
 
     # Проверяем максимальные размеры
     if image_width > max_dimension or image_height > max_dimension:
-        scale_factor = min(
-            max_dimension / image_width, max_dimension / image_height
-        )
+        scale_factor = min(max_dimension / image_width, max_dimension / image_height)
         new_width = int(image_width * scale_factor)
         new_height = int(image_height * scale_factor)
         print(
             f"Уменьшаем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -501,7 +495,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Увеличиваем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -517,7 +511,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Корректируем соотношение сторон с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -527,7 +521,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
             int(image_width / (2 * memorySizeRatio)),
             int(image_height / (2 * memorySizeRatio)),
         ),
-        PIL.Image.LANCZOS,
+        Image.LANCZOS,
     )
 
     # Финальная проверка размеров после сжатия
@@ -537,12 +531,10 @@ def process_image_with_validation(my_image, memorySizeRatio):
             f"Размеры после сжатия слишком малы: {final_width}x{final_height}, устанавливаем минимальные"
         )
         my_image = my_image.resize(
-            (max(final_width, 1), max(final_height, 1)), PIL.Image.LANCZOS
+            (max(final_width, 1), max(final_height, 1)), Image.LANCZOS
         )
 
-    print(
-        f"Итоговые размеры изображения: {my_image.size[0]}x{my_image.size[1]}"
-    )
+    print(f"Итоговые размеры изображения: {my_image.size[0]}x{my_image.size[1]}")
     return my_image
 
 
@@ -567,24 +559,18 @@ def validate_and_fix_image(image_path, output_path):
                         img = img.convert("RGB")
 
                     width, height = img.size
-                    print(
-                        f"HEIC изображение успешно открыто: {width}x{height}"
-                    )
+                    print(f"HEIC изображение успешно открыто: {width}x{height}")
 
                     # Применяем валидацию размеров
                     validated_img = apply_size_validation(img)
 
                     # Сохраняем как JPEG
-                    validated_img.save(
-                        output_path, "JPEG", quality=85, optimize=True
-                    )
+                    validated_img.save(output_path, "JPEG", quality=85, optimize=True)
                     print(f"HEIC конвертирован в JPEG: {output_path}")
                     return True
 
             except ImportError:
-                print(
-                    "pillow-heif не установлен, пытаемся альтернативный метод"
-                )
+                print("pillow-heif не установлен, пытаемся альтернативный метод")
                 # Альтернативный метод - пропускаем файл
                 print(f"Пропускаем HEIC файл (нет поддержки): {image_path}")
                 return False
@@ -627,19 +613,15 @@ def apply_size_validation(img):
         scale_factor = min(max_dimension / width, max_dimension / height)
         new_width = int(width * scale_factor)
         new_height = int(height * scale_factor)
-        print(
-            f"Уменьшаем изображение с {width}x{height} до {new_width}x{new_height}"
-        )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        print(f"Уменьшаем изображение с {width}x{height} до {new_width}x{new_height}")
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     # Проверяем минимальные размеры
     if width < min_dimension or height < min_dimension:
         new_width = max(width, min_dimension)
         new_height = max(height, min_dimension)
-        print(
-            f"Увеличиваем изображение с {width}x{height} до {new_width}x{new_height}"
-        )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        print(f"Увеличиваем изображение с {width}x{height} до {new_width}x{new_height}")
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     # Проверяем соотношение сторон
     aspect_ratio = max(width / height, height / width)
@@ -653,13 +635,15 @@ def apply_size_validation(img):
         print(
             f"Корректируем соотношение сторон с {width}x{height} до {new_width}x{new_height}"
         )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     return img
 
 
 def send_image_file(chat_id, photo, comment):
     """Отправляет изображение в чат"""
+    file_path = None
+    temp_file = None
     try:
         # Скачиваем файл
         if not downloadFile(photo.file, photo.name):
@@ -686,6 +670,7 @@ def send_image_file(chat_id, photo, comment):
 
                     pillow_heif.register_heif_opener()
 
+                    temp_file = dst + "compressed.jpg"
                     with Image.open(file_path) as my_image:
                         if my_image.mode != "RGB":
                             my_image = my_image.convert("RGB")
@@ -693,40 +678,51 @@ def send_image_file(chat_id, photo, comment):
                             my_image, memorySizeRatio
                         )
                         my_image.save(
-                            dst + "compressed.jpg",
+                            temp_file,
                             "JPEG",
                             quality=85,
                             optimize=True,
                         )
                         bot.send_photo(
                             chat_id,
-                            open(dst + "compressed.jpg", "rb"),
+                            open(temp_file, "rb"),
                             caption=comment,
                         )
-                        os.remove(dst + "compressed.jpg")
+                    # Отправка успешна - удаляем файлы
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    os.remove(file_path)
+                    return True
                 except Exception as e:
                     print(f"Ошибка при обработке HEIC: {str(e)}")
-                    os.remove(file_path)
+                    # Удаляем только временный файл, оригинал оставляем для диагностики
+                    if temp_file and os.path.exists(temp_file):
+                        os.remove(temp_file)
                     return False
             else:
                 # Обычные изображения
                 try:
+                    temp_file = dst + "compressed.jpg"
                     with Image.open(file_path) as my_image:
                         my_image = process_image_with_validation(
                             my_image, memorySizeRatio
                         )
-                        my_image.save(
-                            dst + "compressed.jpg", quality=85, optimize=True
-                        )
+                        my_image.save(temp_file, quality=85, optimize=True)
                         bot.send_photo(
                             chat_id,
-                            open(dst + "compressed.jpg", "rb"),
+                            open(temp_file, "rb"),
                             caption=comment,
                         )
-                        os.remove(dst + "compressed.jpg")
+                    # Отправка успешна - удаляем файлы
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    os.remove(file_path)
+                    return True
                 except Exception as e:
                     print(f"Ошибка при сжатии изображения: {str(e)}")
-                    os.remove(file_path)
+                    # Удаляем только временный файл, оригинал оставляем для диагностики
+                    if temp_file and os.path.exists(temp_file):
+                        os.remove(temp_file)
                     return False
         else:
             # Небольшие файлы отправляем напрямую
@@ -736,103 +732,105 @@ def send_image_file(chat_id, photo, comment):
 
                     pillow_heif.register_heif_opener()
 
+                    temp_file = dst + "heic_converted.jpg"
                     with Image.open(file_path) as heic_image:
                         if heic_image.mode != "RGB":
                             heic_image = heic_image.convert("RGB")
                         validated_img = apply_size_validation(heic_image)
                         validated_img.save(
-                            dst + "heic_converted.jpg",
+                            temp_file,
                             "JPEG",
                             quality=85,
                             optimize=True,
                         )
                         bot.send_photo(
                             chat_id,
-                            open(dst + "heic_converted.jpg", "rb"),
+                            open(temp_file, "rb"),
                             caption=comment,
                         )
-                        os.remove(dst + "heic_converted.jpg")
+                    # Отправка успешна - удаляем файлы
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    os.remove(file_path)
+                    return True
                 except Exception as e:
                     print(f"Ошибка при конвертации HEIC: {str(e)}")
-                    os.remove(file_path)
+                    # Удаляем только временный файл, оригинал оставляем для диагностики
+                    if temp_file and os.path.exists(temp_file):
+                        os.remove(temp_file)
                     return False
             else:
                 # Пытаемся отправить локальный файл
                 try:
                     with open(file_path, "rb") as f:
                         bot.send_photo(chat_id, f, caption=comment)
+                    # Отправка успешна - удаляем файл
+                    os.remove(file_path)
+                    return True
                 except:
                     # Если не получилось, валидируем и пробуем снова
-                    if validate_and_fix_image(
-                        file_path, dst + "validated.jpg"
-                    ):
-                        bot.send_photo(
-                            chat_id,
-                            open(dst + "validated.jpg", "rb"),
-                            caption=comment,
-                        )
-                        os.remove(dst + "validated.jpg")
-                    else:
-                        # В крайнем случае пробуем отправить как есть
-                        with open(file_path, "rb") as f:
-                            bot.send_photo(chat_id, f, caption=comment)
-
-        os.remove(file_path)
-        return True
+                    temp_file = dst + "validated.jpg"
+                    try:
+                        if validate_and_fix_image(file_path, temp_file):
+                            bot.send_photo(
+                                chat_id,
+                                open(temp_file, "rb"),
+                                caption=comment,
+                            )
+                            # Отправка успешна - удаляем файлы
+                            os.remove(temp_file)
+                            os.remove(file_path)
+                            return True
+                        else:
+                            # В крайнем случае пробуем отправить как есть
+                            with open(file_path, "rb") as f:
+                                bot.send_photo(chat_id, f, caption=comment)
+                            # Отправка успешна - удаляем файл
+                            os.remove(file_path)
+                            return True
+                    except Exception as e:
+                        print(f"Ошибка при отправке после валидации: {str(e)}")
+                        # Удаляем только временный файл, оригинал оставляем для диагностики
+                        if temp_file and os.path.exists(temp_file):
+                            os.remove(temp_file)
+                        return False
 
     except Exception as e:
         print(f"Ошибка при отправке изображения: {str(e)}")
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        # Не удаляем file_path - оставляем для диагностики
+        # Удаляем только временные файлы
+        if temp_file and os.path.exists(temp_file):
+            os.remove(temp_file)
         return False
 
 
 def send_video_file(chat_id, photo, comment):
     """Отправляет видео в чат"""
+    file_path = None
     try:
-        if "gp3" in photo.name or "mp4" in photo.name or "avi" in photo.name:
-            # Скачиваем видео файл
-            if not downloadFile(photo.file, photo.name):
-                print(f"Не удалось скачать видео {photo.name}")
-                return False
+        # Скачиваем видео файл
+        if not downloadFile(photo.file, photo.name):
+            print(f"Не удалось скачать видео {photo.name}")
+            return False
 
-            file_path = dst + photo.name
-            if not os.path.exists(file_path):
-                print(f"Видео файл {photo.name} не найден после скачивания")
-                return False
+        file_path = dst + photo.name
+        if not os.path.exists(file_path):
+            print(f"Видео файл {photo.name} не найден после скачивания")
+            return False
 
-            try:
-                bot.send_video(chat_id, open(file_path, "rb"), caption=comment)
-                os.remove(file_path)
-                return True
-            except Exception as e:
-                print(f"Ошибка при отправке видео: {str(e)}")
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                return False
-        else:
-            # Скачиваем и отправляем локальный файл
-            if not downloadFile(photo.file, photo.name):
-                print(f"Не удалось скачать видео {photo.name}")
-                return False
-
-            file_path = dst + photo.name
-            if not os.path.exists(file_path):
-                print(f"Видео файл {photo.name} не найден после скачивания")
-                return False
-
-            try:
-                bot.send_video(chat_id, open(file_path, "rb"), caption=comment)
-                os.remove(file_path)
-                return True
-            except Exception as e:
-                print(f"Ошибка при отправке видео: {str(e)}")
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                return False
+        try:
+            bot.send_video(chat_id, open(file_path, "rb"), caption=comment)
+            # Отправка успешна - удаляем файл
+            os.remove(file_path)
+            return True
+        except Exception as e:
+            print(f"Ошибка при отправке видео: {str(e)}")
+            # Не удаляем файл - оставляем для диагностики
+            return False
 
     except Exception as e:
         print(f"Ошибка при обработке видео: {str(e)}")
+        # Не удаляем файл - оставляем для диагностики
         return False
 
 
@@ -852,18 +850,14 @@ def scheduled_photo_sender():
             print("Не найдено настроенных чатов для отправки")
             return
 
-        print(
-            f"Найдено {len(configured_chats)} настроенных чатов: {configured_chats}"
-        )
+        print(f"Найдено {len(configured_chats)} настроенных чатов: {configured_chats}")
 
         # Ищем фотографии по дате (тот же день и месяц любого года)
         print("Поиск фотографий для текущей даты...")
         available_photos = find_available_photos(search_by_date=True)
 
         if not available_photos:
-            print(
-                "Не найдено подходящих фотографий для отправки по расписанию"
-            )
+            print("Не найдено подходящих фотографий для отправки по расписанию")
             return
 
         print(f"Найдено {len(available_photos)} подходящих фотографий")
@@ -884,10 +878,7 @@ def scheduled_photo_sender():
                 # Формируем комментарий
                 photo_path_splited = photo.path.split("/")
                 if photo.photoslice_time is None:
-                    comment = (
-                        "Это "
-                        + photo_path_splited[len(photo_path_splited) - 2]
-                    )
+                    comment = "Это " + photo_path_splited[len(photo_path_splited) - 2]
                 else:
                     today = date.today()
                     photo_date = photo.photoslice_time.date()
@@ -902,8 +893,7 @@ def scheduled_photo_sender():
                             % photo_path_splited[len(photo_path_splited) - 2]
                         )
                     elif (
-                        photo_date.day == today.day
-                        and photo_date.month == today.month
+                        photo_date.day == today.day and photo_date.month == today.month
                     ):
                         comment = "Это %s. Дело было в этот день в %s году" % (
                             photo_path_splited[len(photo_path_splited) - 2],
@@ -970,9 +960,7 @@ def schedule_next_photo():
     )
 
     # Создаем задачу в планировщике
-    schedule.enter(
-        skip_time * 3600, 1, scheduled_photo_sender_with_reschedule, ()
-    )
+    schedule.enter(skip_time * 3600, 1, scheduled_photo_sender_with_reschedule, ())
 
 
 def scheduled_photo_sender_with_reschedule():
@@ -1017,15 +1005,11 @@ def recievingFile(fileLink, message):
             markup.add(InlineKeyboardButton(item, callback_data=item))
 
         # Добавляем кнопку для создания новой папки
-        markup.add(
-            InlineKeyboardButton("Создать новую папку", callback_data="new")
-        )
+        markup.add(InlineKeyboardButton("Создать новую папку", callback_data="new"))
         # Добавляем кнопку для отказа
         markup.add(InlineKeyboardButton("Отмена", callback_data="decline"))
 
-        bot.send_message(
-            message.chat.id, "Куда сохранить файл?", reply_markup=markup
-        )
+        bot.send_message(message.chat.id, "Куда сохранить файл?", reply_markup=markup)
     else:
         print(f"Ошибка при скачивании файла: {downloadResponse.status_code}")
 
@@ -1058,9 +1042,7 @@ def periodic_task():
     print(
         f"⏰ Следующая автоматическая отправка запланирована через {delay_hours} часов"
     )
-    print(
-        f"   Следующая отправка в: {next_time.strftime('%d/%m/%Y %H:%M:%S')}"
-    )
+    print(f"   Следующая отправка в: {next_time.strftime('%d/%m/%Y %H:%M:%S')}")
     print("=" * 60)
 
     schedule.enter(delay_seconds, 1, periodic_task)
@@ -1080,9 +1062,7 @@ if __name__ == "__main__":
     print(
         f"⏰ Первая автоматическая отправка запланирована через {initial_delay_seconds / 60:.2f} минут"
     )
-    print(
-        f"   Первая отправка в: {first_send_time.strftime('%d/%m/%Y %H:%M:%S')}"
-    )
+    print(f"   Первая отправка в: {first_send_time.strftime('%d/%m/%Y %H:%M:%S')}")
 
     schedule.enter(initial_delay_seconds, 1, periodic_task)
 
@@ -1093,13 +1073,21 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # Запускаем бота
-    while True:
-        try:
-            print("🔄 Бот запущен и ожидает сообщений...")
-            bot.polling(none_stop=True, interval=0)
-        except (ConnectionError, requests.exceptions.RequestException) as e:
-            print(f"❌ Ошибка сети: {e}. Перезапуск через 15 секунд...")
-            time.sleep(15)
-        except Exception as e:
-            print(f"❌ Произошла ошибка: {e}. Перезапуск через 15 секунд...")
-            time.sleep(15)
+    print("🔄 Бот запущен и ожидает сообщений...")
+    
+    try:
+        # Используем infinity_polling который лучше поддерживает остановку
+        bot.infinity_polling(
+            timeout=10,
+            long_polling_timeout=10,
+            skip_pending=True
+        )
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка по Ctrl+C...")
+        shutdown_event.set()
+    except Exception as e:
+        if not shutdown_event.is_set():
+            print(f"❌ Ошибка: {e}")
+        shutdown_event.set()
+
+    print("🔴 Бот остановлен")
