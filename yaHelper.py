@@ -48,17 +48,6 @@ def createFolder():
         return "ErrorFolder_" + str(date.today().day)
 
 
-def digToSubfolder(item):
-    if item.type == "dir":
-        li = list(y.listdir(item.path))
-        random.shuffle(li)
-        rand = random.choice(li)
-        return digToSubfolder(rand)
-    if item.media_type == "image" or item.media_type == "video":
-        return item
-    return NONE
-
-
 def downloadFile(url, fileName, max_retries=3):
     """
     Скачивает файл с Yandex Disk с повторными попытками
@@ -449,71 +438,20 @@ def find_files_with_date_filtering(target_date, day_range):
 def find_files_by_date_range(target_date, day_range):
     """
     Ищет файлы, созданные в диапазоне ±day_range дней от target_date в любой другой год
+    Использует кешированный список файлов для эффективности
     """
-    matching_files = []
+    # Получаем кешированный список всех файлов
+    all_files = perform_full_folder_scan()
 
-    try:
-        # Создаем список дат для поиска
-        search_dates = []
-        for i in range(-day_range, day_range + 1):
-            search_date = target_date + timedelta(days=i)
-            search_dates.append((search_date.day, search_date.month))
-
-        print(f"🔍 Ищем файлы для дат: {search_dates}")
-
-        # Получаем список всех подпапок в основной директории
-        subfolders = list(y.listdir(credentials.main_dirrectory))
-        print(f"📁 Найдено {len(subfolders)} папок для поиска")
-
-        # Проходим через все папки и подпапки
-        for folder in subfolders:
-            try:
-                files = list(y.listdir(folder.path))
-                print(f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов")
-                folder_matches = 0
-
-                for file in files:
-                    # Проверка, является ли файл изображением или видео
-                    if file.media_type in ["image", "video"]:
-                        # Получаем дату съёмки фото (не дату создания файла)
-                        if hasattr(file, "photoslice_time") and file.photoslice_time:
-                            photo_date = file.photoslice_time
-                            file_date_tuple = (photo_date.day, photo_date.month)
-
-                            # Проверяем, попадает ли дата файла в наш диапазон
-                            if file_date_tuple in search_dates:
-                                matching_files.append(file)
-                                folder_matches += 1
-                                print(
-                                    f"✅ Найден файл: {file.name}, снят {photo_date.strftime('%d.%m.%Y')}"
-                                )
-                        elif hasattr(file, "created") and file.created:
-                            # Fallback на дату создания файла, если нет даты съёмки
-                            created_date = file.created
-                            file_date_tuple = (created_date.day, created_date.month)
-
-                            if file_date_tuple in search_dates:
-                                matching_files.append(file)
-                                folder_matches += 1
-                                print(
-                                    f"✅ Найден файл (по дате создания): {file.name}, создан {created_date.strftime('%d.%m.%Y')}"
-                                )
-
-                if folder_matches > 0:
-                    print(
-                        f"📂 В папке {folder.name} найдено {folder_matches} подходящих файлов"
-                    )
-
-            except Exception as e:
-                print(f"❌ Ошибка при обработке папки {folder.path}: {str(e)}")
-                continue
-
-    except Exception as e:
-        print(f"❌ Ошибка при поиске файлов по дате: {str(e)}")
+    if not all_files:
+        print("❌ Не найдено файлов для поиска")
         return []
 
+    # Фильтруем файлы по дате
+    matching_files = filter_files_by_date(all_files, target_date, day_range)
+
     print(
-        f"🎯 Итого найдено {len(matching_files)} файлов по дате {target_date.day}.{target_date.month}"
+        f"🎯 Найдено {len(matching_files)} файлов по дате {target_date.day}.{target_date.month} (диапазон ±{day_range} дней)"
     )
     return matching_files
 
