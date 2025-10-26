@@ -4,15 +4,14 @@
 # vim:fileencoding=utf-8
 from datetime import date, datetime, timedelta
 import os
-from random import randrange
 import random
+from random import randrange
 from PIL import Image, ExifTags
 import sched
+import signal
 import time
 import threading
-from random import randrange
 import pytz
-from PIL import Image, ExifTags
 import requests
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -31,6 +30,23 @@ bot_token = credentials.bot_token
 bot = telebot.TeleBot(bot_token)
 dst = credentials.temp_folder
 schedule = sched.scheduler(time.time, time.sleep)
+
+# Событие для корректной остановки бота
+shutdown_event = threading.Event()
+
+
+def signal_handler(sig, frame):
+    """Обработчик сигнала прерывания (Ctrl+C)"""
+    print("\n🛑 Получен сигнал остановки. Завершаем работу бота...")
+    shutdown_event.set()
+    
+    # Принудительный выход
+    import sys
+    sys.exit(0)
+
+
+# Устанавливаем обработчик сигнала
+signal.signal(signal.SIGINT, signal_handler)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -369,6 +385,29 @@ def send_welcome(message):
     )
 
 
+@bot.message_handler(commands=["stop"])
+def stop_bot(message):
+    """Команда для остановки бота"""
+    
+    # Проверяем, что команда пришла от разрешенного чата
+    chat_id = str(message.chat.id)
+    configured_chat_ids = [
+        id.strip() for id in credentials.chat_ids.split(",")
+    ]
+    
+    if chat_id in configured_chat_ids:
+        print(f"🛑 Получена команда остановки от разрешенного чата {chat_id}")
+        bot.send_message(chat_id, "🛑 Останавливаю бота...")
+        shutdown_event.set()
+        
+        # Выходим из процесса
+        import sys
+        sys.exit(0)
+    else:
+        print(f"❌ Попытка остановки от неразрешенного чата {chat_id}")
+        bot.send_message(chat_id, "❌ У вас нет прав для остановки бота")
+
+
 @bot.message_handler(content_types=["video"])
 def echo_video(message):
     try:
@@ -445,7 +484,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Уменьшаем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -456,7 +495,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Увеличиваем изображение с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -472,7 +511,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
         print(
             f"Корректируем соотношение сторон с {int(image_width)}x{int(image_height)} до {new_width}x{new_height}"
         )
-        my_image = my_image.resize((new_width, new_height), PIL.Image.LANCZOS)
+        my_image = my_image.resize((new_width, new_height), Image.LANCZOS)
         image_width = float(new_width)
         image_height = float(new_height)
 
@@ -482,7 +521,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
             int(image_width / (2 * memorySizeRatio)),
             int(image_height / (2 * memorySizeRatio)),
         ),
-        PIL.Image.LANCZOS,
+        Image.LANCZOS,
     )
 
     # Финальная проверка размеров после сжатия
@@ -492,7 +531,7 @@ def process_image_with_validation(my_image, memorySizeRatio):
             f"Размеры после сжатия слишком малы: {final_width}x{final_height}, устанавливаем минимальные"
         )
         my_image = my_image.resize(
-            (max(final_width, 1), max(final_height, 1)), PIL.Image.LANCZOS
+            (max(final_width, 1), max(final_height, 1)), Image.LANCZOS
         )
 
     print(f"Итоговые размеры изображения: {my_image.size[0]}x{my_image.size[1]}")
@@ -575,14 +614,14 @@ def apply_size_validation(img):
         new_width = int(width * scale_factor)
         new_height = int(height * scale_factor)
         print(f"Уменьшаем изображение с {width}x{height} до {new_width}x{new_height}")
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     # Проверяем минимальные размеры
     if width < min_dimension or height < min_dimension:
         new_width = max(width, min_dimension)
         new_height = max(height, min_dimension)
         print(f"Увеличиваем изображение с {width}x{height} до {new_width}x{new_height}")
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     # Проверяем соотношение сторон
     aspect_ratio = max(width / height, height / width)
@@ -596,7 +635,7 @@ def apply_size_validation(img):
         print(
             f"Корректируем соотношение сторон с {width}x{height} до {new_width}x{new_height}"
         )
-        return img.resize((new_width, new_height), PIL.Image.LANCZOS)
+        return img.resize((new_width, new_height), Image.LANCZOS)
 
     return img
 
@@ -1034,13 +1073,21 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # Запускаем бота
-    while True:
-        try:
-            print("🔄 Бот запущен и ожидает сообщений...")
-            bot.polling(none_stop=True, interval=0)
-        except (ConnectionError, requests.exceptions.RequestException) as e:
-            print(f"❌ Ошибка сети: {e}. Перезапуск через 15 секунд...")
-            time.sleep(15)
-        except Exception as e:
-            print(f"❌ Произошла ошибка: {e}. Перезапуск через 15 секунд...")
-            time.sleep(15)
+    print("🔄 Бот запущен и ожидает сообщений...")
+    
+    try:
+        # Используем infinity_polling который лучше поддерживает остановку
+        bot.infinity_polling(
+            timeout=10,
+            long_polling_timeout=10,
+            skip_pending=True
+        )
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка по Ctrl+C...")
+        shutdown_event.set()
+    except Exception as e:
+        if not shutdown_event.is_set():
+            print(f"❌ Ошибка: {e}")
+        shutdown_event.set()
+
+    print("🔴 Бот остановлен")
