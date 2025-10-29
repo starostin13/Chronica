@@ -48,6 +48,43 @@ def createFolder():
         return "ErrorFolder_" + str(date.today().day)
 
 
+def createFolderWithName(folder_name):
+    """
+    Создает папку на Яндекс Диске с указанным именем
+
+    Args:
+        folder_name: Имя создаваемой папки
+
+    Returns:
+        Имя созданной папки или имя с префиксом Error_ в случае ошибки
+    """
+    try:
+        # Очищаем имя папки от недопустимых символов
+        safe_folder_name = "".join(
+            c for c in folder_name if c.isalnum() or c in (" ", "-", "_")
+        ).strip()
+
+        if not safe_folder_name:
+            safe_folder_name = "folder_" + str(date.today().day)
+
+        # Используем forward slash для путей Yandex Disk
+        full_path = f"{credentials.main_dirrectory}/{safe_folder_name}"
+
+        # Проверяем, существует ли папка
+        if y.exists(full_path):
+            # Добавляем суффикс с timestamp
+            timestamp = datetime.now().strftime("%H%M%S")
+            safe_folder_name = f"{safe_folder_name}_{timestamp}"
+            full_path = f"{credentials.main_dirrectory}/{safe_folder_name}"
+
+        y.mkdir(full_path)
+        print(f"Папка {safe_folder_name} успешно создана")
+        return safe_folder_name
+    except Exception as e:
+        print(f"Ошибка при создании папки {folder_name}: {str(e)}")
+        return "ErrorFolder_" + str(date.today().day)
+
+
 def downloadFile(url, fileName, max_retries=3):
     """
     Скачивает файл с Yandex Disk с повторными попытками
@@ -148,7 +185,9 @@ def find_available_photos(search_by_date=True):
         )
         all_files = _folder_scan_cache["all_files"]
     else:
-        print("🔄 Кеш устарел или пуст, выполняем полное сканирование папок...")
+        print(
+            "🔄 Кеш устарел или пуст, выполняем полное сканирование папок..."
+        )
         all_files = perform_full_folder_scan()
 
     if not all_files:
@@ -158,7 +197,9 @@ def find_available_photos(search_by_date=True):
     # Теперь фильтруем уже загруженные файлы по дате
     if search_by_date:
         today = date.today()
-        print(f"🔍 Фильтруем файлы по дате: {today.day}.{today.month} (любой год)")
+        print(
+            f"🔍 Фильтруем файлы по дате: {today.day}.{today.month} (любой год)"
+        )
 
         date_matches = filter_files_by_date(all_files, today, 0)
 
@@ -169,7 +210,9 @@ def find_available_photos(search_by_date=True):
             return date_matches
         else:
             print(f"❌ Файлов с совпадающими датами не найдено")
-            print(f"✅ Используем случайный выбор из {len(all_files)} доступных файлов")
+            print(
+                f"✅ Используем случайный выбор из {len(all_files)} доступных файлов"
+            )
             return all_files
     else:
         print(f"🎲 Случайный выбор из {len(all_files)} файлов")
@@ -218,7 +261,9 @@ def scan_folder_recursively(folder_path, folder_name="", depth=0):
             )
 
     except Exception as e:
-        print(f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}")
+        print(
+            f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}"
+        )
 
     return media_files
 
@@ -262,7 +307,9 @@ def perform_full_folder_scan():
                 )
                 all_files.extend(folder_files)
             except Exception as e:
-                print(f"❌ Ошибка при сканировании папки {folder.path}: {str(e)}")
+                print(
+                    f"❌ Ошибка при сканировании папки {folder.path}: {str(e)}"
+                )
                 continue
 
     except Exception as e:
@@ -279,7 +326,9 @@ def perform_full_folder_scan():
     _folder_scan_cache["cache_expires"] = current_time + cache_duration
     _folder_scan_cache["folders_scanned"] = len(subfolders)
 
-    cache_expire_date = datetime.fromtimestamp(_folder_scan_cache["cache_expires"])
+    cache_expire_date = datetime.fromtimestamp(
+        _folder_scan_cache["cache_expires"]
+    )
     print(
         f"💾 Кеш обновлен: {len(all_files)} файлов, действителен до {cache_expire_date.strftime('%d.%m.%Y %H:%M')} ({cache_days} дней)"
     )
@@ -374,7 +423,9 @@ def find_files_with_date_filtering(target_date, day_range):
         for folder in subfolders:
             try:
                 files = list(y.listdir(folder.path))
-                print(f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов")
+                print(
+                    f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов"
+                )
                 folder_all_media = 0
                 folder_date_matches = 0
 
@@ -388,9 +439,15 @@ def find_files_with_date_filtering(target_date, day_range):
                         file_matches_date = False
 
                         # Получаем дату съёмки фото (не дату создания файла)
-                        if hasattr(file, "photoslice_time") and file.photoslice_time:
+                        if (
+                            hasattr(file, "photoslice_time")
+                            and file.photoslice_time
+                        ):
                             photo_date = file.photoslice_time
-                            file_date_tuple = (photo_date.day, photo_date.month)
+                            file_date_tuple = (
+                                photo_date.day,
+                                photo_date.month,
+                            )
 
                             # Проверяем, попадает ли дата файла в наш диапазон
                             if file_date_tuple in search_dates:
@@ -408,7 +465,10 @@ def find_files_with_date_filtering(target_date, day_range):
                         ):
                             # Fallback на дату создания файла, если нет даты съёмки
                             created_date = file.created
-                            file_date_tuple = (created_date.day, created_date.month)
+                            file_date_tuple = (
+                                created_date.day,
+                                created_date.month,
+                            )
 
                             if file_date_tuple in search_dates:
                                 matching_files.append(file)
