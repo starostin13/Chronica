@@ -90,16 +90,10 @@ def test_downloadFile_with_expired_link():
             mock_size.return_value = 1000
 
             # Тест 1: Первая попытка с UnknownYaDiskError, вторая успешна
-            call_count = [0]
-
-            def download_side_effect(*args, **kwargs):
-                call_count[0] += 1
-                if call_count[0] == 1:
-                    raise UnknownYaDiskError("Link expired")
-                # Вторая попытка успешна
-                return None
-
-            yaHelper.y.download_by_link = Mock(side_effect=download_side_effect)
+            # Используем side_effect с последовательностью значений
+            yaHelper.y.download_by_link = Mock(
+                side_effect=[UnknownYaDiskError("Link expired"), None]
+            )
             yaHelper.y.get_download_link = Mock(return_value="https://fresh.link/new")
 
             result = downloadFile(
