@@ -39,9 +39,10 @@ def signal_handler(sig, frame):
     """Обработчик сигнала прерывания (Ctrl+C)"""
     print("\n🛑 Получен сигнал остановки. Завершаем работу бота...")
     shutdown_event.set()
-    
+
     # Принудительный выход
     import sys
+
     sys.exit(0)
 
 
@@ -98,7 +99,7 @@ def try_send_large_image(chat_id, photo, comment, available_photos):
     memorySizeRatio = 5 / ((photo.size / 1000) / 1024)
 
     # Проверяем успешность скачивания
-    if not downloadFile(photo.file, photo.name):
+    if not downloadFile(photo.file, photo.name, photo.path):
         print(f"Не удалось скачать большой файл {photo.name}")
         available_photos.remove(photo)
         return False
@@ -176,7 +177,7 @@ def try_send_small_image(chat_id, photo, comment, available_photos):
 
     try:
         # Проверяем успешность скачивания
-        if not downloadFile(photo.file, photo.name):
+        if not downloadFile(photo.file, photo.name, photo.path):
             print(f"Не удалось скачать файл {photo.name}")
             bot.send_message(chat_id, f"Не удалось скачать изображение: {comment}")
             available_photos.remove(photo)
@@ -267,7 +268,7 @@ def try_send_video(chat_id, photo, comment, available_photos):
     Возвращает True если успешно отправлено, False если нужно попробовать другой файл
     """
     # Проверяем успешность скачивания видео
-    if not downloadFile(photo.file, photo.name):
+    if not downloadFile(photo.file, photo.name, photo.path):
         print(f"Не удалось скачать видео файл {photo.name}")
         bot.send_message(chat_id, f"Не удалось скачать видео: {comment}")
         available_photos.remove(photo)
@@ -388,20 +389,19 @@ def send_welcome(message):
 @bot.message_handler(commands=["stop"])
 def stop_bot(message):
     """Команда для остановки бота"""
-    
+
     # Проверяем, что команда пришла от разрешенного чата
     chat_id = str(message.chat.id)
-    configured_chat_ids = [
-        id.strip() for id in credentials.chat_ids.split(",")
-    ]
-    
+    configured_chat_ids = [id.strip() for id in credentials.chat_ids.split(",")]
+
     if chat_id in configured_chat_ids:
         print(f"🛑 Получена команда остановки от разрешенного чата {chat_id}")
         bot.send_message(chat_id, "🛑 Останавливаю бота...")
         shutdown_event.set()
-        
+
         # Выходим из процесса
         import sys
+
         sys.exit(0)
     else:
         print(f"❌ Попытка остановки от неразрешенного чата {chat_id}")
@@ -646,7 +646,7 @@ def send_image_file(chat_id, photo, comment):
     temp_file = None
     try:
         # Скачиваем файл
-        if not downloadFile(photo.file, photo.name):
+        if not downloadFile(photo.file, photo.name, photo.path):
             print(f"Не удалось скачать файл {photo.name}")
             return False
 
@@ -809,7 +809,7 @@ def send_video_file(chat_id, photo, comment):
     file_path = None
     try:
         # Скачиваем видео файл
-        if not downloadFile(photo.file, photo.name):
+        if not downloadFile(photo.file, photo.name, photo.path):
             print(f"Не удалось скачать видео {photo.name}")
             return False
 
@@ -1074,14 +1074,10 @@ if __name__ == "__main__":
 
     # Запускаем бота
     print("🔄 Бот запущен и ожидает сообщений...")
-    
+
     try:
         # Используем infinity_polling который лучше поддерживает остановку
-        bot.infinity_polling(
-            timeout=10,
-            long_polling_timeout=10,
-            skip_pending=True
-        )
+        bot.infinity_polling(timeout=10, long_polling_timeout=10, skip_pending=True)
     except KeyboardInterrupt:
         print("\n🛑 Остановка по Ctrl+C...")
         shutdown_event.set()
