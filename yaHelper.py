@@ -67,16 +67,15 @@ def createFolderWithName(folder_name):
         if not safe_folder_name:
             safe_folder_name = "folder_" + str(date.today().day)
 
-        full_path = os.path.join(credentials.main_dirrectory, safe_folder_name)
+        # Используем forward slash для путей Yandex Disk
+        full_path = f"{credentials.main_dirrectory}/{safe_folder_name}"
 
         # Проверяем, существует ли папка
         if y.exists(full_path):
             # Добавляем суффикс с timestamp
             timestamp = datetime.now().strftime("%H%M%S")
             safe_folder_name = f"{safe_folder_name}_{timestamp}"
-            full_path = os.path.join(
-                credentials.main_dirrectory, safe_folder_name
-            )
+            full_path = f"{credentials.main_dirrectory}/{safe_folder_name}"
 
         y.mkdir(full_path)
         print(f"Папка {safe_folder_name} успешно создана")

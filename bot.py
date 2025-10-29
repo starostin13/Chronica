@@ -109,7 +109,8 @@ def callback_query(call):
         for entry in os.listdir(dst):
             file_path = os.path.join(dst, entry)
             if os.path.isfile(file_path):
-                yandex_path = os.path.join(folder_name, entry)
+                # Используем forward slash для путей Yandex Disk
+                yandex_path = f"{folder_name}/{entry}"
                 saveFileTo(file_path, yandex_path)
                 os.remove(file_path)
                 uploaded_count += 1
