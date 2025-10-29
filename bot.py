@@ -85,10 +85,11 @@ def callback_query(call):
         folder_name = createFolderWithName(today_str)
     elif call.data == "decline":
         # Отмена - удаляем скачанные файлы
-        for entry in os.listdir(dst):
-            file_path = os.path.join(dst, entry)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
+        if os.path.exists(dst):
+            for entry in os.listdir(dst):
+                file_path = os.path.join(dst, entry)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
         if chat_id in message_context:
             del message_context[chat_id]
         bot.answer_callback_query(call.id, "Загрузка отменена")
@@ -104,12 +105,13 @@ def callback_query(call):
 
     # Загружаем все файлы из временной папки
     uploaded_count = 0
-    for entry in os.listdir(dst):
-        file_path = os.path.join(dst, entry)
-        if os.path.isfile(file_path):
-            saveFileTo(file_path, folder_name + "/" + entry)
-            os.remove(file_path)
-            uploaded_count += 1
+    if os.path.exists(dst):
+        for entry in os.listdir(dst):
+            file_path = os.path.join(dst, entry)
+            if os.path.isfile(file_path):
+                saveFileTo(file_path, folder_name + "/" + entry)
+                os.remove(file_path)
+                uploaded_count += 1
 
     # Очищаем контекст
     if chat_id in message_context:
