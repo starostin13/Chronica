@@ -166,7 +166,7 @@ def try_send_large_image(chat_id, photo, comment, available_photos):
     memorySizeRatio = 5 / ((photo.size / 1000) / 1024)
 
     # Проверяем успешность скачивания
-    if not downloadFile(photo.file, photo.name):
+    if not downloadFile(photo.file, photo.name, photo.path):
         print(f"Не удалось скачать большой файл {photo.name}")
         available_photos.remove(photo)
         return False
@@ -258,7 +258,7 @@ def try_send_small_image(chat_id, photo, comment, available_photos):
 
     try:
         # Проверяем успешность скачивания
-        if not downloadFile(photo.file, photo.name):
+        if not downloadFile(photo.file, photo.name, photo.path):
             print(f"Не удалось скачать файл {photo.name}")
             bot.send_message(
                 chat_id, f"Не удалось скачать изображение: {comment}"
@@ -363,7 +363,7 @@ def try_send_video(chat_id, photo, comment, available_photos):
     Возвращает True если успешно отправлено, False если нужно попробовать другой файл
     """
     # Проверяем успешность скачивания видео
-    if not downloadFile(photo.file, photo.name):
+    if not downloadFile(photo.file, photo.name, photo.path):
         print(f"Не удалось скачать видео файл {photo.name}")
         bot.send_message(chat_id, f"Не удалось скачать видео: {comment}")
         available_photos.remove(photo)
@@ -498,7 +498,7 @@ def stop_bot(message):
     configured_chat_ids = [
         id.strip() for id in credentials.chat_ids.split(",")
     ]
-
+    
     if chat_id in configured_chat_ids:
         print(f"🛑 Получена команда остановки от разрешенного чата {chat_id}")
         bot.send_message(chat_id, "🛑 Останавливаю бота...")
@@ -784,7 +784,7 @@ def send_image_file(chat_id, photo, comment):
     temp_file = None
     try:
         # Скачиваем файл
-        if not downloadFile(photo.file, photo.name):
+        if not downloadFile(photo.file, photo.name, photo.path):
             print(f"Не удалось скачать файл {photo.name}")
             return False
 
@@ -947,7 +947,7 @@ def send_video_file(chat_id, photo, comment):
     file_path = None
     try:
         # Скачиваем видео файл
-        if not downloadFile(photo.file, photo.name):
+        if not downloadFile(photo.file, photo.name, photo.path):
             print(f"Не удалось скачать видео {photo.name}")
             return False
 

@@ -85,10 +85,45 @@ def createFolderWithName(folder_name):
         return "ErrorFolder_" + str(date.today().day)
 
 
-def downloadFile(url, fileName, max_retries=3):
+def get_fresh_download_link(file_path_on_disk):
     """
-    Скачивает файл с Yandex Disk с повторными попытками
+    Получает свежую ссылку для скачивания файла с Яндекс.Диска
+
+    Args:
+        file_path_on_disk: Путь к файлу на Яндекс.Диске
+
+    Returns:
+        str: Ссылка для скачивания или None в случае ошибки
     """
+    try:
+        if not y.check_token():
+            print("Ошибка токена при получении свежей ссылки")
+            return None
+
+        print(f"Получаем свежую ссылку для файла: {file_path_on_disk}")
+        fresh_link = y.get_download_link(file_path_on_disk)
+        print("✅ Получена свежая ссылка для скачивания")
+        return fresh_link
+    except Exception as e:
+        print(
+            f"❌ Ошибка при получении свежей ссылки для {file_path_on_disk}: {str(e)}"
+        )
+        return None
+
+
+def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
+    """
+    Скачивает файл с Yandex Disk с повторными попытками и обработкой устаревших ссылок
+
+    Args:
+        url: Ссылка для скачивания
+        fileName: Имя файла для сохранения
+        file_path_on_disk: Путь к файлу на Яндекс.Диске (для получения свежей ссылки)
+        max_retries: Максимальное количество попыток
+    """
+    current_url = url
+    link_refreshed = False
+
     for attempt in range(max_retries):
         try:
             # Убеждаемся, что папка назначения существует
@@ -113,7 +148,7 @@ def downloadFile(url, fileName, max_retries=3):
             print(f"Попытка скачивания {fileName} (попытка {attempt + 1})")
 
             # Скачиваем файл
-            y.download_by_link(url, file_path)
+            y.download_by_link(current_url, file_path)
 
             # Проверяем, что файл действительно скачался
             if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
@@ -127,6 +162,33 @@ def downloadFile(url, fileName, max_retries=3):
                 if attempt < max_retries - 1:
                     time.sleep(3)  # Ждем дольше перед повторной попыткой
                     continue
+
+        except yadisk.exceptions.UnknownYaDiskError as e:
+            print(f"⚠️ Unknown Yandex.Disk error при скачивании {fileName}: {str(e)}")
+            # Возможно, ссылка устарела. Пытаемся получить свежую ссылку
+            if file_path_on_disk and not link_refreshed:
+                print("🔄 Пытаемся получить свежую ссылку для скачивания...")
+                fresh_link = get_fresh_download_link(file_path_on_disk)
+                if fresh_link:
+                    current_url = fresh_link
+                    link_refreshed = True
+                    print("✅ Используем свежую ссылку для повторной попытки")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+                else:
+                    print("❌ Не удалось получить свежую ссылку, очищаем кеш файлов")
+                    clear_photo_cache()
+            else:
+                if link_refreshed:
+                    print("❌ Ошибка сохранилась даже со свежей ссылкой, очищаем кеш")
+                else:
+                    print("❌ Нет пути к файлу для получения свежей ссылки")
+                clear_photo_cache()
+
+            if attempt < max_retries - 1:
+                time.sleep(5)
+                continue
 
         except Exception as e:
             print(
