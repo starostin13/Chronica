@@ -62,11 +62,28 @@ def digToSubfolder(item):
         return item
     return NONE
 
+def createFolderWithName(folder_name):
+    """
+    Создает папку на Яндекс Диске с указанным именем
+
+    Args:
+        folder_name: Имя создаваемой папки
 
 def downloadFile(url, fileName, max_retries=5):
     """
     Скачивает файл с Yandex Disk с повторными попытками и экспоненциальной задержкой
     """
+    Скачивает файл с Yandex Disk с повторными попытками и обработкой устаревших ссылок
+
+    Args:
+        url: Ссылка для скачивания
+        fileName: Имя файла для сохранения
+        file_path_on_disk: Путь к файлу на Яндекс.Диске (для получения свежей ссылки)
+        max_retries: Максимальное количество попыток
+    """
+    current_url = url
+    link_refreshed = False
+
     for attempt in range(max_retries):
         try:
             # Убеждаемся, что папка назначения существует
@@ -217,6 +234,55 @@ def find_available_photos(search_by_date=True):
     else:
         print(f"🎲 Случайный выбор из {len(all_files)} файлов")
         return all_files
+
+
+def scan_folder_recursively(folder_path, folder_name="", depth=0):
+    """
+    Рекурсивно сканирует папку и все её подпапки, собирая медиа файлы
+
+    Args:
+        folder_path: Путь к папке для сканирования
+        folder_name: Имя папки (для логирования)
+        depth: Текущая глубина рекурсии (для отступов в логах)
+
+    Returns:
+        Список найденных медиа файлов
+    """
+    indent = "  " * depth
+    media_files = []
+
+    try:
+        items = list(y.listdir(folder_path))
+        print(
+            f"{indent}📂 Сканируем {folder_name or folder_path}: {len(items)} элементов"
+        )
+
+        for item in items:
+            try:
+                if item.type == "dir":
+                    # Рекурсивно сканируем подпапку
+                    subfolder_files = scan_folder_recursively(
+                        item.path, item.name, depth + 1
+                    )
+                    media_files.extend(subfolder_files)
+                elif item.media_type in ["image", "video"]:
+                    # Это медиа файл - добавляем его
+                    media_files.append(item)
+            except Exception as e:
+                print(f"{indent}❌ Ошибка при обработке {item.path}: {str(e)}")
+                continue
+
+        if depth == 0 or len(media_files) > 0:
+            print(
+                f"{indent}✅ В {folder_name or folder_path}: {len(media_files)} медиа файлов"
+            )
+
+    except Exception as e:
+        print(
+            f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}"
+        )
+
+    return media_files
 
 
 def perform_full_folder_scan():
@@ -504,6 +570,7 @@ def find_files_with_date_filtering(target_date, day_range):
 def find_files_by_date_range(target_date, day_range):
     """
     Ищет файлы, созданные в диапазоне ±day_range дней от target_date в любой другой год
+    Использует кешированный список файлов для эффективности
     """
     matching_files = []
 
