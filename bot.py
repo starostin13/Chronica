@@ -1272,20 +1272,30 @@ if __name__ == "__main__":
     print("✅ Планировщик запущен в фоновом потоке")
     print("=" * 60)
 
-    # Запускаем бота
-    print("🔄 Бот запущен и ожидает сообщений...")
+    # Запускаем бота с улучшенной обработкой ошибок и экспоненциальной задержкой
+    retry_count = 0
+    max_retry_backoff = 300  # Максимальная задержка 5 минут
 
-    try:
-        # Используем infinity_polling который лучше поддерживает остановку
-        bot.infinity_polling(
-            timeout=10, long_polling_timeout=10, skip_pending=True
-        )
-    except KeyboardInterrupt:
-        print("\n🛑 Остановка по Ctrl+C...")
-        shutdown_event.set()
-    except Exception as e:
-        if not shutdown_event.is_set():
-            print(f"❌ Ошибка: {e}")
-        shutdown_event.set()
-
-    print("🔴 Бот остановлен")
+    while True:
+        try:
+            print("🔄 Бот запущен и ожидает сообщений...")
+            retry_count = 0  # Сбрасываем счетчик при успешном подключении
+            bot.polling(none_stop=True, interval=0)
+        except (ConnectionError, requests.exceptions.RequestException) as e:
+            retry_count += 1
+            # Экспоненциальная задержка: 15, 30, 60, 120, 240, 300 секунд
+            backoff_time = min(
+                15 * (2 ** (retry_count - 1)), max_retry_backoff
+            )
+            print(f"❌ Ошибка сети (попытка {retry_count}): {e}")
+            print(f"⏳ Перезапуск через {backoff_time} секунд...")
+            time.sleep(backoff_time)
+        except Exception as e:
+            retry_count += 1
+            # Экспоненциальная задержка для общих ошибок
+            backoff_time = min(
+                15 * (2 ** (retry_count - 1)), max_retry_backoff
+            )
+            print(f"❌ Произошла ошибка (попытка {retry_count}): {e}")
+            print(f"⏳ Перезапуск через {backoff_time} секунд...")
+            time.sleep(backoff_time)
