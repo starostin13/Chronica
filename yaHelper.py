@@ -55,12 +55,14 @@ def createFolder():
 def digToSubfolder(item):
     if item.type == "dir":
         li = list(y.listdir(item.path))
+        if not li:
+            return None
         random.shuffle(li)
         rand = random.choice(li)
         return digToSubfolder(rand)
     if item.media_type == "image" or item.media_type == "video":
         return item
-    return NONE
+    return None
 
 def createFolderWithName(folder_name):
     """
