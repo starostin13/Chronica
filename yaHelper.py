@@ -354,20 +354,37 @@ def perform_full_folder_scan():
             max_folder_retries = 2
             for attempt in range(max_folder_retries):
                 try:
-                    files = list(y.listdir(folder.path))
                     print(
-                        f"📂 Сканируем папку {folder.name}: {len(files)} файлов"
+                        f"📂 Рекурсивно сканируем папку {folder.name} "
+                        f"({folder.path})"
                     )
                     folder_media_count = 0
+                    paths_to_scan = [folder.path]
 
-                    for file in files:
-                        if file.media_type in ["image", "video"]:
-                            all_files.append(file)
-                            folder_media_count += 1
+                    while paths_to_scan:
+                        current_path = paths_to_scan.pop()
+                        try:
+                            entries = list(y.listdir(current_path))
+                        except Exception as inner_e:
+                            print(
+                                "❌ Ошибка при сканировании вложенной папки "
+                                f"{current_path}: {str(inner_e)}"
+                            )
+                            continue
+
+                        for entry in entries:
+                            if getattr(entry, "type", None) == "dir":
+                                paths_to_scan.append(entry.path)
+                            elif entry.media_type in ["image", "video"]:
+                                all_files.append(entry)
+                                folder_media_count += 1
 
                     print(
-                        f"📂 В папке {folder.name}: "
-                        f"{folder_media_count} медиа файлов"
+                        "📂 В папке {name} (с учётом подпапок): "
+                        "{count} медиа файлов".format(
+                            name=folder.name,
+                            count=folder_media_count,
+                        )
                     )
                     break  # Успешно обработали папку
 
