@@ -52,6 +52,7 @@ def remove_file_from_cache(file_obj):
         None
     """
     if file_obj is None:
+        print("⚠️ Попытка удалить None из кеша")
         return
 
     all_files = _folder_scan_cache["all_files"]
@@ -68,6 +69,8 @@ def remove_file_from_cache(file_obj):
                 all_files.remove(cached_file)
                 print(f"🗑️ Выбранный файл удален из кеша по пути: {file_path}")
                 break
+        else:
+            print(f"⚠️ Файл не найден в кеше для удаления: {file_path}")
 
 
 def createFolder():
