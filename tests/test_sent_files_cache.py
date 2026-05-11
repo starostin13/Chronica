@@ -1,0 +1,96 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+# Добавляем путь к родительской директории
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+credentials_mock = MagicMock()
+credentials_mock.temp_folder = "/tmp/"
+credentials_mock.yandex_token = "test-token"
+credentials_mock.main_dirrectory = "/disk"
+
+with patch.dict(
+    "sys.modules",
+    {"yadisk": MagicMock(), "credentials": credentials_mock},
+):
+    import yaHelper
+
+clear_photo_cache = yaHelper.clear_photo_cache
+remove_file_from_cache = yaHelper.remove_file_from_cache
+_folder_scan_cache = yaHelper._folder_scan_cache
+
+
+def test_remove_file_from_cache_by_object():
+    """Проверяет удаление выбранного файла из кеша по объекту."""
+    clear_photo_cache()
+
+    photo1 = SimpleNamespace(path="/disk/photo1.jpg")
+    photo2 = SimpleNamespace(path="/disk/photo2.jpg")
+    _folder_scan_cache["all_files"] = [photo1, photo2]
+
+    remove_file_from_cache(photo1)
+
+    assert len(_folder_scan_cache["all_files"]) == 1
+    assert _folder_scan_cache["all_files"][0].path == "/disk/photo2.jpg"
+
+
+def test_remove_file_from_cache_by_path_fallback():
+    """Проверяет удаление из кеша по совпадению path, если объект другой."""
+    clear_photo_cache()
+
+    cached_photo = SimpleNamespace(path="/disk/photo3.jpg")
+    _folder_scan_cache["all_files"] = [cached_photo]
+
+    external_photo_obj = SimpleNamespace(path="/disk/photo3.jpg")
+    remove_file_from_cache(external_photo_obj)
+
+    assert _folder_scan_cache["all_files"] == []
+
+
+def test_remove_file_from_cache_with_none():
+    """Проверяет безопасную обработку None."""
+    clear_photo_cache()
+
+    cached_photo = SimpleNamespace(path="/disk/photo4.jpg")
+    _folder_scan_cache["all_files"] = [cached_photo]
+
+    remove_file_from_cache(None)
+
+    assert len(_folder_scan_cache["all_files"]) == 1
+    assert _folder_scan_cache["all_files"][0].path == "/disk/photo4.jpg"
+
+
+def test_remove_file_from_cache_nonexistent_path():
+    """Проверяет, что несуществующий path не ломает кеш."""
+    clear_photo_cache()
+
+    cached_photo = SimpleNamespace(path="/disk/photo5.jpg")
+    _folder_scan_cache["all_files"] = [cached_photo]
+
+    nonexistent_photo = SimpleNamespace(path="/disk/missing.jpg")
+    remove_file_from_cache(nonexistent_photo)
+
+    assert len(_folder_scan_cache["all_files"]) == 1
+    assert _folder_scan_cache["all_files"][0].path == "/disk/photo5.jpg"
+
+
+if __name__ == "__main__":
+    try:
+        test_remove_file_from_cache_by_object()
+        test_remove_file_from_cache_by_path_fallback()
+        test_remove_file_from_cache_with_none()
+        test_remove_file_from_cache_nonexistent_path()
+        print("✅ Тесты удаления файлов из кеша пройдены")
+    except AssertionError as e:
+        print(f"❌ Тест не пройден: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Ошибка при выполнении тестов: {e}")
+        sys.exit(1)

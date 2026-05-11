@@ -41,6 +41,38 @@ def clear_photo_cache():
     print("🗑️ Кеш сканирования папок очищен")
 
 
+def remove_file_from_cache(file_obj):
+    """
+    Удаляет выбранный файл из кеша all_files.
+
+    Args:
+        file_obj: Объект файла (ожидается атрибут path). Может быть None.
+
+    Returns:
+        None
+    """
+    if file_obj is None:
+        print("⚠️ Попытка удалить None из кеша")
+        return
+
+    all_files = _folder_scan_cache["all_files"]
+
+    if file_obj in all_files:
+        all_files.remove(file_obj)
+        print("🗑️ Выбранный файл удален из кеша по объекту")
+        return
+
+    file_path = getattr(file_obj, "path", None)
+    if file_path:
+        for cached_file in list(all_files):
+            if getattr(cached_file, "path", None) == file_path:
+                all_files.remove(cached_file)
+                print(f"🗑️ Выбранный файл удален из кеша по пути: {file_path}")
+                break
+        else:
+            print(f"⚠️ Файл не найден в кеше для удаления: {file_path}")
+
+
 def createFolder():
     try:
         newFolderName = get_random_string(date.today().day)
@@ -64,16 +96,46 @@ def digToSubfolder(item):
         return item
     return None
 
+
 def createFolderWithName(folder_name):
     """
     Создает папку на Яндекс Диске с указанным именем
 
     Args:
         folder_name: Имя создаваемой папки
-
-def downloadFile(url, fileName, max_retries=5):
     """
-    Скачивает файл с Yandex Disk с повторными попытками и экспоненциальной задержкой
+    try:
+        cleaned_name = (folder_name or "").strip()
+        if not cleaned_name:
+            cleaned_name = f"Folder_{date.today().strftime('%Y%m%d')}"
+
+        if not y.check_token():
+            print("Ошибка токена при создании папки")
+            return f"ErrorFolder_{date.today().day}"
+
+        y.mkdir(credentials.main_dirrectory + "/" + cleaned_name)
+        print(f"Папка {cleaned_name} успешно создана")
+        return cleaned_name
+    except Exception as e:
+        print(f"Ошибка при создании папки {folder_name}: {str(e)}")
+        return f"ErrorFolder_{date.today().day}"
+
+
+def get_fresh_download_link(file_path_on_disk):
+    """Получает свежую ссылку на скачивание файла с Яндекс.Диска."""
+    try:
+        if not file_path_on_disk:
+            return None
+        if not y.check_token():
+            print("Ошибка токена при обновлении ссылки")
+            return None
+        return y.get_download_link(file_path_on_disk)
+    except Exception as e:
+        print(f"Ошибка при получении свежей ссылки: {str(e)}")
+        return None
+
+
+def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
     """
     Скачивает файл с Yandex Disk с повторными попытками и обработкой устаревших ссылок
 
@@ -84,7 +146,6 @@ def downloadFile(url, fileName, max_retries=5):
         max_retries: Максимальное количество попыток
     """
     current_url = url
-    link_refreshed = False
 
     for attempt in range(max_retries):
         try:
@@ -117,27 +178,26 @@ def downloadFile(url, fileName, max_retries=5):
             print(f"Попытка скачивания {fileName} (попытка {attempt + 1})")
 
             # Скачиваем файл
-            y.download_by_link(url, file_path)
+            y.download_by_link(current_url, file_path)
 
             # Проверяем, что файл действительно скачался
             if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                 file_size = os.path.getsize(file_path)
                 print(f"✅ Файл {fileName} успешно скачан ({file_size} байт)")
                 return True
-            else:
+            print(
+                f"⚠️ Файл {fileName} не скачался или имеет нулевой размер "
+                f"(попытка {attempt + 1})"
+            )
+            if attempt < max_retries - 1:
+                # Экспоненциальная задержка
+                backoff_time = 2 ** (attempt + 1)
                 print(
-                    f"⚠️ Файл {fileName} не скачался или имеет нулевой размер "
-                    f"(попытка {attempt + 1})"
+                    f"⏳ Ожидание {backoff_time} секунд "
+                    f"перед повторной попыткой..."
                 )
-                if attempt < max_retries - 1:
-                    # Экспоненциальная задержка
-                    backoff_time = 2 ** (attempt + 1)
-                    print(
-                        f"⏳ Ожидание {backoff_time} секунд "
-                        f"перед повторной попыткой..."
-                    )
-                    time.sleep(backoff_time)
-                    continue
+                time.sleep(backoff_time)
+                continue
 
         except Exception as e:
             error_msg = str(e)
@@ -145,6 +205,24 @@ def downloadFile(url, fileName, max_retries=5):
                 f"❌ Ошибка при скачивании файла {fileName} "
                 f"(попытка {attempt + 1}): {error_msg}"
             )
+
+            # Если ссылка устарела/протухла — пытаемся получить свежую
+            unknown_expired_error = (
+                hasattr(yadisk, "exceptions")
+                and hasattr(yadisk.exceptions, "UnknownYaDiskError")
+                and isinstance(e, yadisk.exceptions.UnknownYaDiskError)
+            )
+            text_expired_error = "expired" in error_msg.lower()
+
+            if file_path_on_disk and (
+                unknown_expired_error or text_expired_error
+            ):
+                fresh_link = get_fresh_download_link(file_path_on_disk)
+                if fresh_link:
+                    current_url = fresh_link
+                    print("🔄 Получена свежая ссылка, повторяем скачивание...")
+                    continue
+
             if attempt < max_retries - 1:
                 # Экспоненциальная задержка с увеличенным временем при ошибках
                 backoff_time = 2 ** (attempt + 2)
