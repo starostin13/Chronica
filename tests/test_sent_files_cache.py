@@ -82,8 +82,15 @@ def test_remove_file_from_cache_nonexistent_path():
 
 
 if __name__ == "__main__":
-    test_remove_file_from_cache_by_object()
-    test_remove_file_from_cache_by_path_fallback()
-    test_remove_file_from_cache_with_none()
-    test_remove_file_from_cache_nonexistent_path()
-    print("✅ Тесты удаления файлов из кеша пройдены")
+    try:
+        test_remove_file_from_cache_by_object()
+        test_remove_file_from_cache_by_path_fallback()
+        test_remove_file_from_cache_with_none()
+        test_remove_file_from_cache_nonexistent_path()
+        print("✅ Тесты удаления файлов из кеша пройдены")
+    except AssertionError as e:
+        print(f"❌ Тест не пройден: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Ошибка при выполнении тестов: {e}")
+        sys.exit(1)

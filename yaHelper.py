@@ -58,6 +58,7 @@ def remove_file_from_cache(file_obj):
 
     if file_obj in all_files:
         all_files.remove(file_obj)
+        print("🗑️ Выбранный файл удален из кеша по объекту")
         return
 
     file_path = getattr(file_obj, "path", None)
@@ -65,6 +66,7 @@ def remove_file_from_cache(file_obj):
         for cached_file in list(all_files):
             if getattr(cached_file, "path", None) == file_path:
                 all_files.remove(cached_file)
+                print(f"🗑️ Выбранный файл удален из кеша по пути: {file_path}")
                 break
 
 
