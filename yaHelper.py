@@ -14,7 +14,11 @@ from stringHelper import get_random_string
 
 dst = credentials.temp_folder
 
-y = yadisk.YaDisk(token=credentials.yandex_token)
+y = yadisk.YaDisk(
+    token=credentials.yandex_token,
+    timeout=30.0,  # Увеличенный таймаут для запросов
+    max_retries=5,  # Максимальное количество повторных попыток
+)
 
 # Глобальный кеш для результатов сканирования папок
 _folder_scan_cache = {
@@ -22,7 +26,7 @@ _folder_scan_cache = {
     "scan_time": 0,  # Время последнего сканирования
     "cache_expires": 0,  # Время истечения кеша (случайное от 1 до 5 дней)
     "folders_scanned": 0,  # Количество отсканированных папок
-    "sent_files": set(),  # Множество путей отправленных файлов
+    "sent_files": set(),  # Пути уже отправленных файлов
 }
 
 
@@ -40,48 +44,9 @@ def clear_photo_cache():
 
 
 def mark_file_as_sent(file_path):
-    """
-    Помечает файл как отправленный, добавляя его путь в список отправленных
-    """
-    global _folder_scan_cache
-    _folder_scan_cache["sent_files"].add(file_path)
-    print(f"✉️ Файл помечен как отправленный: {file_path}")
-
-
-def remove_file_from_cache(file_obj):
-    """
-    Удаляет файл из кеша и помечает его как отправленный
-    """
-    global _folder_scan_cache
-    if file_obj in _folder_scan_cache["all_files"]:
-        _folder_scan_cache["all_files"].remove(file_obj)
-        print(f"🗑️ Файл удален из кеша: {file_obj.path}")
-    mark_file_as_sent(file_obj.path)
-
-
-def get_cache_stats():
-    """
-    Возвращает статистику о кеше для отладки
-    """
-    global _folder_scan_cache
-    total_files = len(_folder_scan_cache["all_files"])
-    sent_files = len(_folder_scan_cache["sent_files"])
-    available_files = total_files
-
-    # Подсчитываем файлы, доступные для отправки
-    if _folder_scan_cache["all_files"]:
-        available_files = sum(
-            1
-            for f in _folder_scan_cache["all_files"]
-            if f.path not in _folder_scan_cache["sent_files"]
-        )
-
-    return {
-        "total_files": total_files,
-        "sent_files": sent_files,
-        "available_files": available_files,
-        "folders_scanned": _folder_scan_cache["folders_scanned"],
-    }
+    """Помечает файл как отправленный, чтобы исключить его из кеш-выборки."""
+    if file_path:
+        _folder_scan_cache["sent_files"].add(file_path)
 
 
 def createFolder():
@@ -98,18 +63,65 @@ def createFolder():
 def digToSubfolder(item):
     if item.type == "dir":
         li = list(y.listdir(item.path))
+        if not li:
+            return None
         random.shuffle(li)
         rand = random.choice(li)
         return digToSubfolder(rand)
     if item.media_type == "image" or item.media_type == "video":
         return item
-    return NONE
+    return None
+
+def createFolderWithName(folder_name):
+    """
+    Создает папку на Яндекс Диске с указанным именем
+
+    Args:
+        folder_name: Имя создаваемой папки
+    """
+    try:
+        cleaned_name = (folder_name or "").strip()
+        if not cleaned_name:
+            cleaned_name = f"Folder_{date.today().strftime('%Y%m%d')}"
+
+        if not y.check_token():
+            print("Ошибка токена при создании папки")
+            return f"ErrorFolder_{date.today().day}"
+
+        y.mkdir(credentials.main_dirrectory + "/" + cleaned_name)
+        print(f"Папка {cleaned_name} успешно создана")
+        return cleaned_name
+    except Exception as e:
+        print(f"Ошибка при создании папки {folder_name}: {str(e)}")
+        return f"ErrorFolder_{date.today().day}"
 
 
-def downloadFile(url, fileName, max_retries=3):
+def get_fresh_download_link(file_path_on_disk):
+    """Получает свежую ссылку на скачивание файла с Яндекс.Диска."""
+    try:
+        if not file_path_on_disk:
+            return None
+        if not y.check_token():
+            print("Ошибка токена при обновлении ссылки")
+            return None
+        return y.get_download_link(file_path_on_disk)
+    except Exception as e:
+        print(f"Ошибка при получении свежей ссылки: {str(e)}")
+        return None
+
+
+def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
     """
-    Скачивает файл с Yandex Disk с повторными попытками
+    Скачивает файл с Yandex Disk с повторными попытками и обработкой устаревших ссылок
+
+    Args:
+        url: Ссылка для скачивания
+        fileName: Имя файла для сохранения
+        file_path_on_disk: Путь к файлу на Яндекс.Диске (для получения свежей ссылки)
+        max_retries: Максимальное количество попыток
     """
+    current_url = url
+
     for attempt in range(max_retries):
         try:
             # Убеждаемся, что папка назначения существует
@@ -118,10 +130,17 @@ def downloadFile(url, fileName, max_retries=3):
             # Проверяем доступность токена
             if not y.check_token():
                 print(
-                    f"Ошибка токена при скачивании {fileName} (попытка {attempt + 1})"
+                    f"Ошибка токена при скачивании {fileName} "
+                    f"(попытка {attempt + 1})"
                 )
                 if attempt < max_retries - 1:
-                    time.sleep(2)  # Ждем перед повторной попыткой
+                    # Экспоненциальная задержка: 2, 4, 8, 16 секунд
+                    backoff_time = 2 ** (attempt + 1)
+                    print(
+                        f"⏳ Ожидание {backoff_time} секунд "
+                        f"перед повторной попыткой..."
+                    )
+                    time.sleep(backoff_time)
                     continue
                 return False
 
@@ -134,30 +153,63 @@ def downloadFile(url, fileName, max_retries=3):
             print(f"Попытка скачивания {fileName} (попытка {attempt + 1})")
 
             # Скачиваем файл
-            y.download_by_link(url, file_path)
+            y.download_by_link(current_url, file_path)
 
             # Проверяем, что файл действительно скачался
             if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                 file_size = os.path.getsize(file_path)
-                print(f"Файл {fileName} успешно скачан ({file_size} байт)")
+                print(f"✅ Файл {fileName} успешно скачан ({file_size} байт)")
                 return True
-            else:
-                print(
-                    f"Файл {fileName} не скачался или имеет нулевой размер (попытка {attempt + 1})"
-                )
-                if attempt < max_retries - 1:
-                    time.sleep(3)  # Ждем дольше перед повторной попыткой
-                    continue
-
-        except Exception as e:
             print(
-                f"Ошибка при скачивании файла {fileName} (попытка {attempt + 1}): {str(e)}"
+                f"⚠️ Файл {fileName} не скачался или имеет нулевой размер "
+                f"(попытка {attempt + 1})"
             )
             if attempt < max_retries - 1:
-                time.sleep(5)  # Ждем перед повторной попыткой при ошибке
+                # Экспоненциальная задержка
+                backoff_time = 2 ** (attempt + 1)
+                print(
+                    f"⏳ Ожидание {backoff_time} секунд "
+                    f"перед повторной попыткой..."
+                )
+                time.sleep(backoff_time)
                 continue
 
-    print(f"Не удалось скачать файл {fileName} после {max_retries} попыток")
+        except Exception as e:
+            error_msg = str(e)
+            print(
+                f"❌ Ошибка при скачивании файла {fileName} "
+                f"(попытка {attempt + 1}): {error_msg}"
+            )
+
+            # Если ссылка устарела/протухла — пытаемся получить свежую
+            unknown_expired_error = (
+                hasattr(yadisk, "exceptions")
+                and hasattr(yadisk.exceptions, "UnknownYaDiskError")
+                and isinstance(e, yadisk.exceptions.UnknownYaDiskError)
+            )
+            text_expired_error = "expired" in error_msg.lower()
+
+            if (
+                file_path_on_disk
+                and (unknown_expired_error or text_expired_error)
+            ):
+                fresh_link = get_fresh_download_link(file_path_on_disk)
+                if fresh_link:
+                    current_url = fresh_link
+                    print("🔄 Получена свежая ссылка, повторяем скачивание...")
+                    continue
+
+            if attempt < max_retries - 1:
+                # Экспоненциальная задержка с увеличенным временем при ошибках
+                backoff_time = 2 ** (attempt + 2)
+                print(
+                    f"⏳ Ожидание {backoff_time} секунд "
+                    f"перед повторной попыткой..."
+                )
+                time.sleep(backoff_time)
+                continue
+
+    print(f"❌ Не удалось скачать файл {fileName} после {max_retries} попыток")
     return False
 
 
@@ -189,7 +241,6 @@ def find_available_photos(search_by_date=True):
     2. Если search_by_date=False или нет совпадений по дате: случайные файлы
     Возвращает список найденных файлов
     Использует умное кеширование результатов сканирования папок на 1-5 дней
-    Исключает файлы, которые уже были отправлены
     """
     global _folder_scan_cache
 
@@ -216,17 +267,12 @@ def find_available_photos(search_by_date=True):
         print("❌ Файлов не найдено")
         return []
 
-    # Фильтруем отправленные файлы
+    # Исключаем уже отправленные файлы из кеша
     sent_files = _folder_scan_cache["sent_files"]
-    unsent_files = [f for f in all_files if f.path not in sent_files]
-
-    if sent_files:
-        print(
-            f"🚫 Исключено {len(all_files) - len(unsent_files)} отправленных файлов"
-        )
+    unsent_files = [file for file in all_files if file.path not in sent_files]
 
     if not unsent_files:
-        print("⚠️ Все файлы были отправлены")
+        print("⚠️ Все файлы из кеша уже были отправлены")
         return []
 
     # Теперь фильтруем уже загруженные файлы по дате
@@ -254,20 +300,81 @@ def find_available_photos(search_by_date=True):
         return unsent_files
 
 
+def scan_folder_recursively(folder_path, folder_name="", depth=0):
+    """
+    Рекурсивно сканирует папку и все её подпапки, собирая медиа файлы
+
+    Args:
+        folder_path: Путь к папке для сканирования
+        folder_name: Имя папки (для логирования)
+        depth: Текущая глубина рекурсии (для отступов в логах)
+
+    Returns:
+        Список найденных медиа файлов
+    """
+    indent = "  " * depth
+    media_files = []
+
+    try:
+        items = list(y.listdir(folder_path))
+        print(
+            f"{indent}📂 Сканируем {folder_name or folder_path}: {len(items)} элементов"
+        )
+
+        for item in items:
+            try:
+                if item.type == "dir":
+                    # Рекурсивно сканируем подпапку
+                    subfolder_files = scan_folder_recursively(
+                        item.path, item.name, depth + 1
+                    )
+                    media_files.extend(subfolder_files)
+                elif item.media_type in ["image", "video"]:
+                    # Это медиа файл - добавляем его
+                    media_files.append(item)
+            except Exception as e:
+                print(f"{indent}❌ Ошибка при обработке {item.path}: {str(e)}")
+                continue
+
+        if depth == 0 or len(media_files) > 0:
+            print(
+                f"{indent}✅ В {folder_name or folder_path}: {len(media_files)} медиа файлов"
+            )
+
+    except Exception as e:
+        print(
+            f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}"
+        )
+
+    return media_files
+
+
 def perform_full_folder_scan():
     """
     Выполняет полное сканирование всех папок и кеширует результат на случайное время (1-5 дней)
+    С улучшенной обработкой ошибок сети
     """
     global _folder_scan_cache
 
-    # Проверка токена Яндекс.Диска
-    try:
-        if not y.check_token():
-            print("❌ Invalid token")
-            return []
-    except Exception as e:
-        print(f"❌ Ошибка при проверке токена Яндекс.Диска: {str(e)}")
-        return []
+    # Проверка токена Яндекс.Диска с повторными попытками
+    max_token_retries = 3
+    for attempt in range(max_token_retries):
+        try:
+            if not y.check_token():
+                print("❌ Invalid token")
+                return []
+            break  # Токен валидный, выходим из цикла
+        except Exception as e:
+            print(
+                f"❌ Ошибка при проверке токена Яндекс.Диска "
+                f"(попытка {attempt + 1}): {str(e)}"
+            )
+            if attempt < max_token_retries - 1:
+                backoff_time = 2 ** (attempt + 1)
+                print(f"⏳ Повтор через {backoff_time} секунд...")
+                time.sleep(backoff_time)
+            else:
+                return []
 
     # Информация о текущем использовании диска
     try:
@@ -279,34 +386,85 @@ def perform_full_folder_scan():
     all_files = []
 
     try:
-        # Получаем список всех подпапок в основной директории
-        subfolders = list(y.listdir(credentials.main_dirrectory))
+        # Получаем список всех подпапок в основной директории с повторными попытками
+        subfolders = None
+        max_listdir_retries = 3
+        for attempt in range(max_listdir_retries):
+            try:
+                subfolders = list(y.listdir(credentials.main_dirrectory))
+                break
+            except Exception as e:
+                print(
+                    f"❌ Ошибка при получении списка папок "
+                    f"(попытка {attempt + 1}): {str(e)}"
+                )
+                if attempt < max_listdir_retries - 1:
+                    backoff_time = 2 ** (attempt + 1)
+                    print(f"⏳ Повтор через {backoff_time} секунд...")
+                    time.sleep(backoff_time)
+                else:
+                    return []
+
+        if not subfolders:
+            print("❌ Не удалось получить список папок")
+            return []
+
         print(f"📁 Найдено {len(subfolders)} папок для сканирования")
 
         # Проходим через все папки и собираем ВСЕ медиа файлы
         for folder in subfolders:
-            try:
-                files = list(y.listdir(folder.path))
-                print(f"📂 Сканируем папку {folder.name}: {len(files)} файлов")
-                folder_media_count = 0
+            max_folder_retries = 2
+            for attempt in range(max_folder_retries):
+                try:
+                    print(
+                        f"📂 Рекурсивно сканируем папку {folder.name} "
+                        f"({folder.path})"
+                    )
+                    folder_media_count = 0
+                    paths_to_scan = [folder.path]
 
-                for file in files:
-                    if file.media_type in ["image", "video"]:
-                        all_files.append(file)
-                        folder_media_count += 1
+                    while paths_to_scan:
+                        current_path = paths_to_scan.pop()
+                        try:
+                            entries = list(y.listdir(current_path))
+                        except Exception as inner_e:
+                            print(
+                                "❌ Ошибка при сканировании вложенной папки "
+                                f"{current_path}: {str(inner_e)}"
+                            )
+                            continue
 
-                print(
-                    f"📂 В папке {folder.name}: {folder_media_count} медиа файлов"
-                )
+                        for entry in entries:
+                            if getattr(entry, "type", None) == "dir":
+                                paths_to_scan.append(entry.path)
+                            elif entry.media_type in ["image", "video"]:
+                                all_files.append(entry)
+                                folder_media_count += 1
 
-            except Exception as e:
-                print(
-                    f"❌ Ошибка при сканировании папки {folder.path}: {str(e)}"
-                )
-                continue
+                    print(
+                        "📂 В папке {name} (с учётом подпапок): "
+                        "{count} медиа файлов".format(
+                            name=folder.name,
+                            count=folder_media_count,
+                        )
+                    )
+                    break  # Успешно обработали папку
+
+                except Exception as e:
+                    print(
+                        f"❌ Ошибка при сканировании папки {folder.path} "
+                        f"(попытка {attempt + 1}): {str(e)}"
+                    )
+                    if attempt < max_folder_retries - 1:
+                        backoff_time = 2**attempt
+                        print(f"⏳ Повтор через {backoff_time} секунд...")
+                        time.sleep(backoff_time)
+                    else:
+                        print(f"⚠️ Пропускаем папку {folder.path}")
+                        continue
 
     except Exception as e:
-        print(f"❌ Ошибка при сканировании папок: {str(e)}")
+        print(f"❌ Критическая ошибка при сканировании папок: {str(e)}")
         return []
 
     # Обновляем кеш с новыми данными
@@ -323,7 +481,9 @@ def perform_full_folder_scan():
         _folder_scan_cache["cache_expires"]
     )
     print(
-        f"💾 Кеш обновлен: {len(all_files)} файлов, действителен до {cache_expire_date.strftime('%d.%m.%Y %H:%M')} ({cache_days} дней)"
+        f"💾 Кеш обновлен: {len(all_files)} файлов, "
+        f"действителен до {cache_expire_date.strftime('%d.%m.%Y %H:%M')} "
+        f"({cache_days} дней)"
     )
 
     return all_files
@@ -491,6 +651,7 @@ def find_files_with_date_filtering(target_date, day_range):
 def find_files_by_date_range(target_date, day_range):
     """
     Ищет файлы, созданные в диапазоне ±day_range дней от target_date в любой другой год
+    Использует кешированный список файлов для эффективности
     """
     matching_files = []
 
