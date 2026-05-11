@@ -23,7 +23,7 @@ from yaHelper import (
     getLastUpdatedFolder,
     saveFileTo,
     find_available_photos,
-    mark_file_as_sent,
+    remove_file_from_cache,
 )
 from stringHelper import numberToMonthNameRu
 import shutil
@@ -473,7 +473,7 @@ def send_welcome(message):
 
             # Если отправка успешна, выходим из цикла попыток
             if success:
-                mark_file_as_sent(photo.path)
+                remove_file_from_cache(photo)
                 return
 
         except Exception as exc:
@@ -500,7 +500,7 @@ def stop_bot(message):
     configured_chat_ids = [
         id.strip() for id in credentials.chat_ids.split(",")
     ]
-    
+
     if chat_id in configured_chat_ids:
         print(f"🛑 Получена команда остановки от разрешенного чата {chat_id}")
         bot.send_message(chat_id, "🛑 Останавливаю бота...")
@@ -1063,7 +1063,7 @@ def scheduled_photo_sender():
 
                 if success:
                     print(f"✅ Успешно отправлено в чат {chat_id}")
-                    mark_file_as_sent(photo.path)
+                    remove_file_from_cache(photo)
                 else:
                     print(f"❌ Не удалось отправить в чат {chat_id}")
 

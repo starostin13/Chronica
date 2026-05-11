@@ -26,7 +26,6 @@ _folder_scan_cache = {
     "scan_time": 0,  # Время последнего сканирования
     "cache_expires": 0,  # Время истечения кеша (случайное от 1 до 5 дней)
     "folders_scanned": 0,  # Количество отсканированных папок
-    "sent_files": set(),  # Пути уже отправленных файлов
 }
 
 
@@ -39,14 +38,26 @@ def clear_photo_cache():
     _folder_scan_cache["scan_time"] = 0
     _folder_scan_cache["cache_expires"] = 0
     _folder_scan_cache["folders_scanned"] = 0
-    _folder_scan_cache["sent_files"] = set()
     print("🗑️ Кеш сканирования папок очищен")
 
 
-def mark_file_as_sent(file_path):
-    """Помечает файл как отправленный, чтобы исключить его из кеш-выборки."""
+def remove_file_from_cache(file_obj):
+    """Удаляет выбранный файл из кеша all_files."""
+    if file_obj is None:
+        return
+
+    all_files = _folder_scan_cache["all_files"]
+
+    if file_obj in all_files:
+        all_files.remove(file_obj)
+        return
+
+    file_path = getattr(file_obj, "path", None)
     if file_path:
-        _folder_scan_cache["sent_files"].add(file_path)
+        for cached_file in list(all_files):
+            if getattr(cached_file, "path", None) == file_path:
+                all_files.remove(cached_file)
+                break
 
 
 def createFolder():
@@ -71,6 +82,7 @@ def digToSubfolder(item):
     if item.media_type == "image" or item.media_type == "video":
         return item
     return None
+
 
 def createFolderWithName(folder_name):
     """
@@ -189,9 +201,8 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
             )
             text_expired_error = "expired" in error_msg.lower()
 
-            if (
-                file_path_on_disk
-                and (unknown_expired_error or text_expired_error)
+            if file_path_on_disk and (
+                unknown_expired_error or text_expired_error
             ):
                 fresh_link = get_fresh_download_link(file_path_on_disk)
                 if fresh_link:
@@ -267,14 +278,6 @@ def find_available_photos(search_by_date=True):
         print("❌ Файлов не найдено")
         return []
 
-    # Исключаем уже отправленные файлы из кеша
-    sent_files = _folder_scan_cache["sent_files"]
-    unsent_files = [file for file in all_files if file.path not in sent_files]
-
-    if not unsent_files:
-        print("⚠️ Все файлы из кеша уже были отправлены")
-        return []
-
     # Теперь фильтруем уже загруженные файлы по дате
     if search_by_date:
         today = date.today()
@@ -282,7 +285,7 @@ def find_available_photos(search_by_date=True):
             f"🔍 Фильтруем файлы по дате: {today.day}.{today.month} (любой год)"
         )
 
-        date_matches = filter_files_by_date(unsent_files, today, 0)
+        date_matches = filter_files_by_date(all_files, today, 0)
 
         if date_matches:
             print(
@@ -292,12 +295,12 @@ def find_available_photos(search_by_date=True):
         else:
             print(f"❌ Файлов с совпадающими датами не найдено")
             print(
-                f"✅ Используем случайный выбор из {len(unsent_files)} доступных файлов"
+                f"✅ Используем случайный выбор из {len(all_files)} доступных файлов"
             )
-            return unsent_files
+            return all_files
     else:
-        print(f"🎲 Случайный выбор из {len(unsent_files)} файлов")
-        return unsent_files
+        print(f"🎲 Случайный выбор из {len(all_files)} файлов")
+        return all_files
 
 
 def scan_folder_recursively(folder_path, folder_name="", depth=0):
