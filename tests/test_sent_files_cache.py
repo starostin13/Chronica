@@ -54,7 +54,36 @@ def test_remove_file_from_cache_by_path_fallback():
     assert _folder_scan_cache["all_files"] == []
 
 
+def test_remove_file_from_cache_with_none():
+    """Проверяет безопасную обработку None."""
+    clear_photo_cache()
+
+    cached_photo = SimpleNamespace(path="/disk/photo4.jpg")
+    _folder_scan_cache["all_files"] = [cached_photo]
+
+    remove_file_from_cache(None)
+
+    assert len(_folder_scan_cache["all_files"]) == 1
+    assert _folder_scan_cache["all_files"][0].path == "/disk/photo4.jpg"
+
+
+def test_remove_file_from_cache_nonexistent_path():
+    """Проверяет, что несуществующий path не ломает кеш."""
+    clear_photo_cache()
+
+    cached_photo = SimpleNamespace(path="/disk/photo5.jpg")
+    _folder_scan_cache["all_files"] = [cached_photo]
+
+    nonexistent_photo = SimpleNamespace(path="/disk/missing.jpg")
+    remove_file_from_cache(nonexistent_photo)
+
+    assert len(_folder_scan_cache["all_files"]) == 1
+    assert _folder_scan_cache["all_files"][0].path == "/disk/photo5.jpg"
+
+
 if __name__ == "__main__":
     test_remove_file_from_cache_by_object()
     test_remove_file_from_cache_by_path_fallback()
+    test_remove_file_from_cache_with_none()
+    test_remove_file_from_cache_nonexistent_path()
     print("✅ Тесты удаления файлов из кеша пройдены")

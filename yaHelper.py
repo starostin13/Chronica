@@ -42,7 +42,15 @@ def clear_photo_cache():
 
 
 def remove_file_from_cache(file_obj):
-    """Удаляет выбранный файл из кеша all_files."""
+    """
+    Удаляет выбранный файл из кеша all_files.
+
+    Args:
+        file_obj: Объект файла (ожидается атрибут path). Может быть None.
+
+    Returns:
+        None
+    """
     if file_obj is None:
         return
 
