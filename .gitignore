@@ -164,3 +164,4 @@ cython_debug/
 / - Copy.env
 /.vs/Chronica/v17/DocumentLayout.json
 temp/
+chronica-bot.tar

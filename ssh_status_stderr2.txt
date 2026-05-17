@@ -1,0 +1,60 @@
+Building chronica-bot
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 841B 0.0s done
+#1 DONE 0.2s
+
+#2 [internal] load metadata for docker.io/library/python:3.11-slim
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context:
+#3 transferring context: 2B done
+#3 DONE 0.1s
+
+#4 [ 1/11] FROM docker.io/library/python:3.11-slim
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 33.41kB 0.0s done
+#5 DONE 0.1s
+
+#6 [ 2/11] RUN apt-get update && apt-get install -y     gcc     libjpeg-dev     zlib1g-dev     && rm -rf /var/lib/apt/lists/*
+#6 CACHED
+
+#7 [ 3/11] WORKDIR /app
+#7 CACHED
+
+#8 [ 4/11] COPY requirements.txt .
+#8 CACHED
+
+#9 [ 5/11] RUN pip install --no-cache-dir -r requirements.txt
+#9 CACHED
+
+#10 [ 6/11] COPY bot.py .
+#10 CACHED
+
+#11 [ 7/11] COPY yaHelper.py .
+#11 DONE 4.6s
+
+#12 [ 8/11] COPY stringHelper.py .
+#12 DONE 4.3s
+
+#13 [ 9/11] COPY messageHandlerHelper.py .
+#13 DONE 0.9s
+
+#14 [10/11] COPY credentials.py .
+#14 DONE 1.0s
+
+#15 [11/11] RUN mkdir -p /tmp/chronica
+#15 DONE 3.2s
+
+#16 exporting to image
+#16 exporting layers
+#16 exporting layers 0.9s done
+#16 writing image sha256:65209164b20ccbd231dd975a19d4e61b74d609c6d4607f81b9ccf8c4c817faf7 0.0s done
+#16 naming to docker.io/library/chronica_chronica-bot 0.0s done
+#16 DONE 1.1s
+Creating chronica-bot ... 
+Creating chronica-bot ... done

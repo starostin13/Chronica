@@ -1,4 +1,15 @@
-version: "3"
+version: "3.8"
 services:
-  bot:
+  chronica-bot:
     build: .
+    container_name: chronica-bot
+    restart: unless-stopped
+    volumes:
+      - /tmp/chronica:/tmp/chronica
+    environment:
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

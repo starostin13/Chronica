@@ -91,7 +91,9 @@
 			"label": "run_bot_simple",
 			"type": "shell",
 			"command": "c:\\Users\\staro\\Projects\\Chronica\\Chronica\\venv\\Scripts\\python.exe",
-			"args": ["bot.py"],
+			"args": [
+				"bot.py"
+			],
 			"options": {
 				"cwd": "c:\\Users\\staro\\Projects\\Chronica\\Chronica"
 			},
@@ -103,6 +105,19 @@
 				"panel": "new",
 				"clear": true
 			}
+		},
+		{
+			"label": "Deploy Prod Verify",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"& { Set-Location 'c:\\Users\\staro\\Projects\\Chronica\\Chronica'; & 'C:\\Windows\\System32\\OpenSSH\\scp.exe' bot.py yaHelper.py stringHelper.py messageHandlerHelper.py credentials.py requirements.txt Dockerfile docker-compose.yml deploy.sh ubuntu@192.168.1.125:/home/ubuntu/chronica/; & 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' -o BatchMode=yes ubuntu@192.168.1.125 \"cd /home/ubuntu/chronica; sudo docker rm -f chronica-bot >/dev/null 2>&1 || true; sudo docker-compose build --no-cache; sudo docker-compose up -d; sudo docker-compose ps; sudo docker-compose logs --tail=20 chronica-bot\" }"
+			],
+			"isBackground": false
 		}
 	]
 }

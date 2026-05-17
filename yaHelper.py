@@ -16,8 +16,6 @@ dst = credentials.temp_folder
 
 y = yadisk.YaDisk(
     token=credentials.yandex_token,
-    timeout=30.0,  # Увеличенный таймаут для запросов
-    max_retries=5,  # Максимальное количество повторных попыток
 )
 
 # Глобальный кеш для результатов сканирования папок
