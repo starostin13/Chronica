@@ -24,6 +24,7 @@ _folder_scan_cache = {
     "scan_time": 0,  # Время последнего сканирования
     "cache_expires": 0,  # Время истечения кеша (случайное от 1 до 5 дней)
     "folders_scanned": 0,  # Количество отсканированных папок
+    "max_file_size": None,  # Максимальный размер файла в байтах (None = без ограничения)
 }
 
 
@@ -36,7 +37,39 @@ def clear_photo_cache():
     _folder_scan_cache["scan_time"] = 0
     _folder_scan_cache["cache_expires"] = 0
     _folder_scan_cache["folders_scanned"] = 0
+    _folder_scan_cache["max_file_size"] = None
     print("🗑️ Кеш сканирования папок очищен")
+
+
+def set_max_file_size(file_size_bytes):
+    """
+    Устанавливает максимальный размер файла, который можно отправить в Telegram.
+    Вызывается, когда Telegram отклоняет файл из-за размера.
+
+    Args:
+        file_size_bytes: Размер файла в байтах
+    """
+    global _folder_scan_cache
+
+    current_max = _folder_scan_cache["max_file_size"]
+
+    if current_max is None or file_size_bytes < current_max:
+        _folder_scan_cache["max_file_size"] = file_size_bytes
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        print(
+            f"📏 Установлен максимальный размер файла: "
+            f"{file_size_mb:.2f} MB ({file_size_bytes} байт)"
+        )
+
+
+def get_max_file_size():
+    """
+    Возвращает текущий максимальный размер файла в байтах.
+
+    Returns:
+        int or None: Максимальный размер в байтах или None если ограничения нет
+    """
+    return _folder_scan_cache["max_file_size"]
 
 
 def remove_file_from_cache(file_obj):
@@ -191,8 +224,7 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
                 # Экспоненциальная задержка
                 backoff_time = 2 ** (attempt + 1)
                 print(
-                    f"⏳ Ожидание {backoff_time} секунд "
-                    f"перед повторной попыткой..."
+                    f"⏳ Ожидание {backoff_time} секунд " f"перед повторной попыткой..."
                 )
                 time.sleep(backoff_time)
                 continue
@@ -212,9 +244,7 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
             )
             text_expired_error = "expired" in error_msg.lower()
 
-            if file_path_on_disk and (
-                unknown_expired_error or text_expired_error
-            ):
+            if file_path_on_disk and (unknown_expired_error or text_expired_error):
                 fresh_link = get_fresh_download_link(file_path_on_disk)
                 if fresh_link:
                     current_url = fresh_link
@@ -225,8 +255,7 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
                 # Экспоненциальная задержка с увеличенным временем при ошибках
                 backoff_time = 2 ** (attempt + 2)
                 print(
-                    f"⏳ Ожидание {backoff_time} секунд "
-                    f"перед повторной попыткой..."
+                    f"⏳ Ожидание {backoff_time} секунд " f"перед повторной попыткой..."
                 )
                 time.sleep(backoff_time)
                 continue
@@ -280,21 +309,41 @@ def find_available_photos(search_by_date=True):
         )
         all_files = _folder_scan_cache["all_files"]
     else:
-        print(
-            "🔄 Кеш устарел или пуст, выполняем полное сканирование папок..."
-        )
+        print("🔄 Кеш устарел или пуст, выполняем полное сканирование папок...")
         all_files = perform_full_folder_scan()
 
     if not all_files:
         print("❌ Файлов не найдено")
         return []
 
+    # Фильтруем файлы по максимальному размеру
+    max_size = _folder_scan_cache["max_file_size"]
+    if max_size is not None:
+        original_count = len(all_files)
+        all_files = [
+            f
+            for f in all_files
+            if hasattr(f, "size") and f.size is not None and f.size <= max_size
+        ]
+        filtered_count = original_count - len(all_files)
+        if filtered_count > 0:
+            max_size_mb = max_size / (1024 * 1024)
+            print(
+                f"📏 Отфильтровано {filtered_count} файлов превышающих "
+                f"максимальный размер {max_size_mb:.2f} MB"
+            )
+
+        if not all_files:
+            print(
+                "❌ Все файлы превышают максимальный размер, "
+                "возвращаем пустой список"
+            )
+            return []
+
     # Теперь фильтруем уже загруженные файлы по дате
     if search_by_date:
         today = date.today()
-        print(
-            f"🔍 Фильтруем файлы по дате: {today.day}.{today.month} (любой год)"
-        )
+        print(f"🔍 Фильтруем файлы по дате: {today.day}.{today.month} (любой год)")
 
         date_matches = filter_files_by_date(all_files, today, 0)
 
@@ -305,9 +354,7 @@ def find_available_photos(search_by_date=True):
             return date_matches
         else:
             print(f"❌ Файлов с совпадающими датами не найдено")
-            print(
-                f"✅ Используем случайный выбор из {len(all_files)} доступных файлов"
-            )
+            print(f"✅ Используем случайный выбор из {len(all_files)} доступных файлов")
             return all_files
     else:
         print(f"🎲 Случайный выбор из {len(all_files)} файлов")
@@ -356,9 +403,7 @@ def scan_folder_recursively(folder_path, folder_name="", depth=0):
             )
 
     except Exception as e:
-        print(
-            f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}"
-        )
+        print(f"{indent}❌ Ошибка при сканировании папки {folder_path}: {str(e)}")
 
     return media_files
 
@@ -491,9 +536,7 @@ def perform_full_folder_scan():
     _folder_scan_cache["cache_expires"] = current_time + cache_duration
     _folder_scan_cache["folders_scanned"] = len(subfolders)
 
-    cache_expire_date = datetime.fromtimestamp(
-        _folder_scan_cache["cache_expires"]
-    )
+    cache_expire_date = datetime.fromtimestamp(_folder_scan_cache["cache_expires"])
     print(
         f"💾 Кеш обновлен: {len(all_files)} файлов, "
         f"действителен до {cache_expire_date.strftime('%d.%m.%Y %H:%M')} "
@@ -590,9 +633,7 @@ def find_files_with_date_filtering(target_date, day_range):
         for folder in subfolders:
             try:
                 files = list(y.listdir(folder.path))
-                print(
-                    f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов"
-                )
+                print(f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов")
                 folder_all_media = 0
                 folder_date_matches = 0
 
@@ -606,10 +647,7 @@ def find_files_with_date_filtering(target_date, day_range):
                         file_matches_date = False
 
                         # Получаем дату съёмки фото (не дату создания файла)
-                        if (
-                            hasattr(file, "photoslice_time")
-                            and file.photoslice_time
-                        ):
+                        if hasattr(file, "photoslice_time") and file.photoslice_time:
                             photo_date = file.photoslice_time
                             file_date_tuple = (
                                 photo_date.day,
@@ -686,19 +724,14 @@ def find_files_by_date_range(target_date, day_range):
         for folder in subfolders:
             try:
                 files = list(y.listdir(folder.path))
-                print(
-                    f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов"
-                )
+                print(f"📂 Обрабатываем папку {folder.name}: {len(files)} файлов")
                 folder_matches = 0
 
                 for file in files:
                     # Проверка, является ли файл изображением или видео
                     if file.media_type in ["image", "video"]:
                         # Получаем дату съёмки фото (не дату создания файла)
-                        if (
-                            hasattr(file, "photoslice_time")
-                            and file.photoslice_time
-                        ):
+                        if hasattr(file, "photoslice_time") and file.photoslice_time:
                             photo_date = file.photoslice_time
                             file_date_tuple = (
                                 photo_date.day,
