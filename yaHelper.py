@@ -323,7 +323,7 @@ def find_available_photos(search_by_date=True):
         all_files = [
             f
             for f in all_files
-            if hasattr(f, "size") and f.size is not None and f.size <= max_size
+            if not hasattr(f, "size") or f.size is None or f.size <= max_size
         ]
         filtered_count = original_count - len(all_files)
         if filtered_count > 0:
