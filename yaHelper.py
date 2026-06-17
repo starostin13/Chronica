@@ -224,7 +224,8 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
                 # Экспоненциальная задержка
                 backoff_time = 2 ** (attempt + 1)
                 print(
-                    f"⏳ Ожидание {backoff_time} секунд " f"перед повторной попыткой..."
+                    f"⏳ Ожидание {backoff_time} секунд "
+                    f"перед повторной попыткой..."
                 )
                 time.sleep(backoff_time)
                 continue
