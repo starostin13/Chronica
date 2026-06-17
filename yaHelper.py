@@ -329,7 +329,7 @@ def find_available_photos(search_by_date=True):
         if filtered_count > 0:
             max_size_mb = max_size / (1024 * 1024)
             print(
-                f"📏 Отфильтровано {filtered_count} файлов превышающих "
+                f"📏 Отфильтровано {filtered_count} файлов, превышающих "
                 f"максимальный размер {max_size_mb:.2f} MB"
             )
 
