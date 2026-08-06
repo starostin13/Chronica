@@ -374,8 +374,6 @@ def try_send_video(chat_id, photo, comment, available_photos):
         size_error_markers = (
             "too big",
             "too large",
-            "entity too large",
-            "file is too big",
         )
         if any(marker in error_text for marker in size_error_markers):
             bot.send_message(
