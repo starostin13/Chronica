@@ -370,10 +370,23 @@ def try_send_video(chat_id, photo, comment, available_photos):
         return True
     except Exception as video_e:
         print(f"Ошибка при отправке видео: {str(video_e)}")
-        bot.send_message(chat_id, f"Видео слишком большое для отправки: {comment}")
-        # Сохраняем размер файла как максимальный
-        if hasattr(photo, "size") and photo.size:
-            set_max_file_size(photo.size)
+        error_text = str(video_e).lower()
+        size_error_markers = (
+            "too big",
+            "too large",
+            "entity too large",
+            "file is too big",
+        )
+        if any(marker in error_text for marker in size_error_markers):
+            bot.send_message(
+                chat_id,
+                f"Видео слишком большое для отправки: {comment}",
+            )
+            # Сохраняем размер файла как максимальный
+            if hasattr(photo, "size") and photo.size:
+                set_max_file_size(photo.size)
+        else:
+            bot.send_message(chat_id, f"Не удалось отправить видео: {comment}")
         available_photos.remove(photo)
         return False
 
