@@ -323,10 +323,20 @@ def try_send_small_image(chat_id, photo, comment, available_photos):
                 return True
             except Exception as fallback_e:
                 print(f"Не удалось отправить изображение: {str(fallback_e)}")
-                bot.send_message(chat_id, f"Изображение слишком большое: {comment}")
-                # Сохраняем размер файла как максимальный
-                if hasattr(photo, "size") and photo.size:
-                    set_max_file_size(photo.size)
+                error_text = str(fallback_e).lower()
+                size_error_markers = (
+                    "too big",
+                    "too large",
+                    "entity too large",
+                    "file is too big",
+                )
+                if any(marker in error_text for marker in size_error_markers):
+                    bot.send_message(chat_id, f"Изображение слишком большое: {comment}")
+                    # Сохраняем размер файла как максимальный
+                    if hasattr(photo, "size") and photo.size:
+                        set_max_file_size(photo.size)
+                else:
+                    bot.send_message(chat_id, f"Не удалось отправить изображение: {comment}")
         else:
             bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
 
