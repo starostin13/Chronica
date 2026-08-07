@@ -128,12 +128,13 @@ def test_filter_files_without_size():
     filtered_files = [
         f
         for f in files
-        if hasattr(f, "size") and f.size is not None and f.size <= max_size
+        if not hasattr(f, "size") or f.size is None or f.size <= max_size
     ]
 
-    # Должен остаться только файл с size
-    assert len(filtered_files) == 1
+    # Файл без size не должен отбрасываться только из-за отсутствия метаданных
+    assert len(filtered_files) == 2
     assert filtered_files[0].name == "with_size.jpg"
+    assert filtered_files[1].name == "without_size.jpg"
 
     print("✅ test_filter_files_without_size passed")
 
