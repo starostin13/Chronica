@@ -92,7 +92,7 @@ def test_filter_files_by_size():
     filtered_files = [
         f
         for f in files
-        if hasattr(f, "size") and f.size is not None and f.size <= max_size
+        if not hasattr(f, "size") or f.size is None or f.size <= max_size
     ]
 
     # Должны остаться только файлы размером <= 6 MB
