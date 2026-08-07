@@ -53,7 +53,7 @@ if max_size is not None:
     all_files = [
         f
         for f in all_files
-        if get_known_file_size(f) is None or get_known_file_size(f) <= max_size
+        if (file_size := get_known_file_size(f)) is None or file_size <= max_size
     ]
 ```
 
