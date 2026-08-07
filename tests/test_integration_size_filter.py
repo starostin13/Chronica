@@ -6,6 +6,7 @@
 
 import sys
 import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 # Добавляем путь к родительской директории
@@ -23,6 +24,19 @@ with patch.dict(
     {"yadisk": MagicMock(), "credentials": credentials_mock},
 ):
     import yaHelper
+
+TEST_CACHE_FILE = os.path.join(
+    tempfile.gettempdir(),
+    "chronica_integration_size_filter_test_cache.json",
+)
+yaHelper.SIZE_CACHE_FILE = TEST_CACHE_FILE
+
+
+def reset_test_cache():
+    """Очищает тестовый файловый кеш и кеш модуля."""
+    if os.path.exists(TEST_CACHE_FILE):
+        os.remove(TEST_CACHE_FILE)
+    yaHelper.clear_photo_cache()
 
 
 class MockFile:
@@ -42,7 +56,7 @@ def test_integration_filter_by_size():
     Интеграционный тест: симулирует работу бота с фильтрацией по размеру
     """
     # Очищаем кеш
-    yaHelper.clear_photo_cache()
+    reset_test_cache()
 
     # Создаем mock файлы разных размеров
     all_files = [
@@ -59,7 +73,10 @@ def test_integration_filter_by_size():
         f
         for f in all_files
         if max_size is None
-        or (hasattr(f, "size") and f.size is not None and f.size <= max_size)
+        or (
+            yaHelper.get_known_file_size(f) is None
+            or yaHelper.get_known_file_size(f) <= max_size
+        )
     ]
     assert len(available) == 4
     print("✅ Шаг 1: Без ограничений доступны все 4 файла")
@@ -75,7 +92,8 @@ def test_integration_filter_by_size():
     available = [
         f
         for f in all_files
-        if hasattr(f, "size") and f.size is not None and f.size <= max_size
+        if yaHelper.get_known_file_size(f) is None
+        or yaHelper.get_known_file_size(f) <= max_size
     ]
     assert len(available) == 3
     assert available[0].name == "photo1.jpg"
@@ -94,7 +112,8 @@ def test_integration_filter_by_size():
     available = [
         f
         for f in all_files
-        if hasattr(f, "size") and f.size is not None and f.size <= max_size
+        if yaHelper.get_known_file_size(f) is None
+        or yaHelper.get_known_file_size(f) <= max_size
     ]
     assert len(available) == 2
     assert available[0].name == "photo1.jpg"

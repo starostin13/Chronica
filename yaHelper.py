@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 # vim:fileencoding=utf-8
 from datetime import date, timedelta, datetime
+import json
 import os
-from pickle import NONE, TRUE
 import credentials
 import random
 from random import randrange
@@ -13,6 +13,7 @@ import time
 from stringHelper import get_random_string
 
 dst = credentials.temp_folder
+SIZE_CACHE_FILE = os.path.join(dst, "folder_scan_cache.json")
 
 y = yadisk.YaDisk(
     token=credentials.yandex_token,
@@ -24,20 +25,109 @@ _folder_scan_cache = {
     "scan_time": 0,  # Время последнего сканирования
     "cache_expires": 0,  # Время истечения кеша (случайное от 1 до 5 дней)
     "folders_scanned": 0,  # Количество отсканированных папок
-    "max_file_size": None,  # Максимальный размер файла в байтах (None = без ограничения)
+    "max_file_size": None,  # Максимальный размер файла в байтах
+    "file_sizes": {},  # Размеры файлов по их пути на Яндекс.Диске
 }
+
+
+def _save_size_cache():
+    """
+    Сохраняет ограничения по размеру и известные размеры файлов в файл кеша.
+    """
+    try:
+        cache_dir = os.path.dirname(SIZE_CACHE_FILE)
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
+
+        with open(SIZE_CACHE_FILE, "w", encoding="utf-8") as cache_file:
+            json.dump(
+                {
+                    "max_file_size": _folder_scan_cache["max_file_size"],
+                    "file_sizes": _folder_scan_cache["file_sizes"],
+                },
+                cache_file,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+    except Exception as e:
+        print(f"⚠️ Не удалось сохранить кеш размеров: {str(e)}")
+
+
+def _load_size_cache():
+    """Загружает ограничения по размеру и кеш размеров файлов из файла."""
+    if not os.path.exists(SIZE_CACHE_FILE):
+        return
+
+    try:
+        with open(SIZE_CACHE_FILE, "r", encoding="utf-8") as cache_file:
+            cached_data = json.load(cache_file)
+    except Exception as e:
+        print(f"⚠️ Не удалось загрузить кеш размеров: {str(e)}")
+        return
+
+    max_file_size = cached_data.get("max_file_size")
+    if isinstance(max_file_size, int) and max_file_size > 0:
+        _folder_scan_cache["max_file_size"] = max_file_size
+    else:
+        _folder_scan_cache["max_file_size"] = None
+
+    cached_sizes = cached_data.get("file_sizes", {})
+    normalized_sizes = {}
+    if isinstance(cached_sizes, dict):
+        for file_path, file_size in cached_sizes.items():
+            if (
+                isinstance(file_path, str)
+                and isinstance(file_size, int)
+                and file_size > 0
+            ):
+                normalized_sizes[file_path] = file_size
+
+    _folder_scan_cache["file_sizes"] = normalized_sizes
+    print(
+        "📦 Загружен кеш размеров: "
+        f"{len(normalized_sizes)} файлов, "
+        f"max_file_size={_folder_scan_cache['max_file_size']}"
+    )
+
+
+def _remember_file_size(file_path, file_size_bytes, save_cache=True):
+    """
+    Сохраняет известный размер файла по его пути на Яндекс.Диске.
+
+    Args:
+        file_path: Путь к файлу на Яндекс.Диске
+        file_size_bytes: Размер файла в байтах
+        save_cache: Нужно ли сразу сохранять изменения в файл кеша
+    """
+    if not file_path:
+        return False
+
+    if not isinstance(file_size_bytes, int) or file_size_bytes <= 0:
+        return False
+
+    current_size = _folder_scan_cache["file_sizes"].get(file_path)
+    if current_size == file_size_bytes:
+        return False
+
+    _folder_scan_cache["file_sizes"][file_path] = file_size_bytes
+    if save_cache:
+        _save_size_cache()
+    return True
 
 
 def clear_photo_cache():
     """
-    Очищает кеш сканирования папок, принудительно заставляя пересканировать при следующем запросе
+    Очищает кеш сканирования папок и заставляет пересканировать их
+    при следующем запросе.
     """
-    global _folder_scan_cache
     _folder_scan_cache["all_files"] = []
     _folder_scan_cache["scan_time"] = 0
     _folder_scan_cache["cache_expires"] = 0
     _folder_scan_cache["folders_scanned"] = 0
     _folder_scan_cache["max_file_size"] = None
+    _folder_scan_cache["file_sizes"] = {}
+    _save_size_cache()
     print("🗑️ Кеш сканирования папок очищен")
 
 
@@ -49,12 +139,11 @@ def set_max_file_size(file_size_bytes):
     Args:
         file_size_bytes: Размер файла в байтах
     """
-    global _folder_scan_cache
-
     current_max = _folder_scan_cache["max_file_size"]
 
     if current_max is None or file_size_bytes < current_max:
         _folder_scan_cache["max_file_size"] = file_size_bytes
+        _save_size_cache()
         file_size_mb = file_size_bytes / (1024 * 1024)
         print(
             f"📏 Установлен максимальный размер файла: "
@@ -70,6 +159,30 @@ def get_max_file_size():
         int or None: Максимальный размер в байтах или None если ограничения нет
     """
     return _folder_scan_cache["max_file_size"]
+
+
+def get_known_file_size(file_obj):
+    """
+    Возвращает известный размер файла из API Яндекс.Диска или файлового кеша.
+
+    Args:
+        file_obj: Объект файла
+
+    Returns:
+        int or None: Размер файла в байтах или None если он неизвестен
+    """
+    file_size = getattr(file_obj, "size", None)
+    if isinstance(file_size, int) and file_size > 0:
+        file_path = getattr(file_obj, "path", None)
+        if file_path:
+            _remember_file_size(file_path, file_size, save_cache=False)
+        return file_size
+
+    file_path = getattr(file_obj, "path", None)
+    if file_path:
+        return _folder_scan_cache["file_sizes"].get(file_path)
+
+    return None
 
 
 def remove_file_from_cache(file_obj):
@@ -214,6 +327,8 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
             # Проверяем, что файл действительно скачался
             if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                 file_size = os.path.getsize(file_path)
+                if file_path_on_disk:
+                    _remember_file_size(file_path_on_disk, file_size)
                 print(f"✅ Файл {fileName} успешно скачан ({file_size} байт)")
                 return True
             print(
@@ -223,7 +338,9 @@ def downloadFile(url, fileName, file_path_on_disk=None, max_retries=3):
             if attempt < max_retries - 1:
                 # Экспоненциальная задержка
                 backoff_time = 2 ** (attempt + 1)
-                print(f"⏳ Ожидание {backoff_time} секунд " f"перед повторной попыткой...")
+                print(
+                    f"⏳ Ожидание {backoff_time} секунд " f"перед повторной попыткой..."
+                )
                 time.sleep(backoff_time)
                 continue
 
@@ -291,8 +408,6 @@ def find_available_photos(search_by_date=True):
     Возвращает список найденных файлов
     Использует умное кеширование результатов сканирования папок на 1-5 дней
     """
-    global _folder_scan_cache
-
     # Проверяем актуальность кеша
     current_time = time.time()
     cache_valid = (
@@ -301,7 +416,7 @@ def find_available_photos(search_by_date=True):
     )
 
     if cache_valid:
-        print(f"📦 Используем кешированные данные сканирования папок")
+        print("📦 Используем кешированные данные сканирования папок")
         print(
             f"📊 В кеше: {len(_folder_scan_cache['all_files'])} файлов из {_folder_scan_cache['folders_scanned']} папок"
         )
@@ -321,7 +436,7 @@ def find_available_photos(search_by_date=True):
         all_files = [
             f
             for f in all_files
-            if not hasattr(f, "size") or f.size is None or f.size <= max_size
+            if ((file_size := get_known_file_size(f)) is None or file_size <= max_size)
         ]
         filtered_count = original_count - len(all_files)
         if filtered_count > 0:
@@ -351,7 +466,7 @@ def find_available_photos(search_by_date=True):
             )
             return date_matches
         else:
-            print(f"❌ Файлов с совпадающими датами не найдено")
+            print("❌ Файлов с совпадающими датами не найдено")
             print(f"✅ Используем случайный выбор из {len(all_files)} доступных файлов")
             return all_files
     else:
@@ -411,8 +526,6 @@ def perform_full_folder_scan():
     Выполняет полное сканирование всех папок и кеширует результат на случайное время (1-5 дней)
     С улучшенной обработкой ошибок сети
     """
-    global _folder_scan_cache
-
     # Проверка токена Яндекс.Диска с повторными попытками
     max_token_retries = 3
     for attempt in range(max_token_retries):
@@ -441,6 +554,7 @@ def perform_full_folder_scan():
         print(f"⚠️ Ошибка при получении информации о диске: {str(e)}")
 
     all_files = []
+    size_cache_changed = False
 
     try:
         # Получаем список всех подпапок в основной директории с повторными попытками
@@ -497,6 +611,12 @@ def perform_full_folder_scan():
                             elif entry.media_type in ["image", "video"]:
                                 all_files.append(entry)
                                 folder_media_count += 1
+                                if _remember_file_size(
+                                    entry.path,
+                                    getattr(entry, "size", None),
+                                    save_cache=False,
+                                ):
+                                    size_cache_changed = True
 
                     print(
                         "📂 В папке {name} (с учётом подпапок): "
@@ -534,6 +654,9 @@ def perform_full_folder_scan():
     _folder_scan_cache["cache_expires"] = current_time + cache_duration
     _folder_scan_cache["folders_scanned"] = len(subfolders)
 
+    if size_cache_changed:
+        _save_size_cache()
+
     cache_expire_date = datetime.fromtimestamp(_folder_scan_cache["cache_expires"])
     print(
         f"💾 Кеш обновлен: {len(all_files)} файлов, "
@@ -542,6 +665,9 @@ def perform_full_folder_scan():
     )
 
     return all_files
+
+
+_load_size_cache()
 
 
 def filter_files_by_date(all_files, target_date, day_range):

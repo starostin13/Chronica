@@ -6,6 +6,8 @@
 
 import sys
 import os
+import tempfile
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Добавляем путь к родительской директории
@@ -28,6 +30,20 @@ set_max_file_size = yaHelper.set_max_file_size
 get_max_file_size = yaHelper.get_max_file_size
 _folder_scan_cache = yaHelper._folder_scan_cache
 clear_photo_cache = yaHelper.clear_photo_cache
+get_known_file_size = yaHelper.get_known_file_size
+
+TEST_CACHE_FILE = os.path.join(
+    tempfile.gettempdir(),
+    "chronica_size_filter_test_cache.json",
+)
+yaHelper.SIZE_CACHE_FILE = TEST_CACHE_FILE
+
+
+def reset_test_cache():
+    """Очищает тестовый файловый кеш и кеш модуля."""
+    if os.path.exists(TEST_CACHE_FILE):
+        os.remove(TEST_CACHE_FILE)
+    clear_photo_cache()
 
 
 class MockFile:
@@ -43,7 +59,7 @@ class MockFile:
 def test_set_max_file_size():
     """Тест установки максимального размера файла"""
     # Очищаем кеш перед тестом
-    clear_photo_cache()
+    reset_test_cache()
 
     # Устанавливаем первый максимум
     set_max_file_size(10 * 1024 * 1024)  # 10 MB
@@ -63,7 +79,7 @@ def test_set_max_file_size():
 def test_get_max_file_size_default():
     """Тест получения максимального размера по умолчанию"""
     # Очищаем кеш
-    clear_photo_cache()
+    reset_test_cache()
 
     # По умолчанию должен быть None
     assert get_max_file_size() is None
@@ -74,7 +90,7 @@ def test_get_max_file_size_default():
 def test_filter_files_by_size():
     """Тест фильтрации файлов по размеру"""
     # Очищаем кеш
-    clear_photo_cache()
+    reset_test_cache()
 
     # Создаем тестовые файлы разных размеров
     files = [
@@ -106,7 +122,7 @@ def test_filter_files_by_size():
 def test_filter_files_without_size():
     """Тест фильтрации файлов без атрибута size"""
     # Очищаем кеш
-    clear_photo_cache()
+    reset_test_cache()
 
     # Создаем файл без size
     class FileWithoutSize:
@@ -142,7 +158,7 @@ def test_filter_files_without_size():
 def test_no_filter_when_max_is_none():
     """Тест что фильтрация не применяется когда max_size = None"""
     # Очищаем кеш
-    clear_photo_cache()
+    reset_test_cache()
 
     files = [
         MockFile("file1.jpg", 1 * 1024 * 1024),
@@ -169,10 +185,79 @@ def test_no_filter_when_max_is_none():
     print("✅ test_no_filter_when_max_is_none passed")
 
 
+def test_get_known_file_size_from_cache():
+    """Тест получения размера файла из файлового кеша."""
+    reset_test_cache()
+
+    cached_path = "/disk/cached-photo.jpg"
+    cached_size = 7 * 1024 * 1024
+    yaHelper._remember_file_size(cached_path, cached_size)
+
+    file_without_size = SimpleNamespace(
+        name="cached-photo.jpg",
+        path=cached_path,
+        media_type="image",
+    )
+
+    assert get_known_file_size(file_without_size) == cached_size
+
+    print("✅ test_get_known_file_size_from_cache passed")
+
+
+def test_set_max_file_size_persists_in_cache_file():
+    """Тест сохранения максимального размера в файловый кеш."""
+    reset_test_cache()
+
+    cached_path = "/disk/persisted-photo.jpg"
+    cached_size = 4 * 1024 * 1024
+    yaHelper._remember_file_size(cached_path, cached_size)
+    set_max_file_size(6 * 1024 * 1024)
+
+    _folder_scan_cache["max_file_size"] = None
+    _folder_scan_cache["file_sizes"] = {}
+    yaHelper._load_size_cache()
+
+    assert get_max_file_size() == 6 * 1024 * 1024
+    assert _folder_scan_cache["file_sizes"][cached_path] == cached_size
+
+    print("✅ test_set_max_file_size_persists_in_cache_file passed")
+
+
+def test_download_file_saves_size_to_cache():
+    """Тест сохранения размера в кеш после скачивания файла."""
+    reset_test_cache()
+
+    file_name = "downloaded-photo.jpg"
+    file_path_on_disk = "/disk/downloaded-photo.jpg"
+    local_file_path = os.path.join(credentials_mock.temp_folder, file_name)
+
+    def fake_download(_url, destination):
+        with open(destination, "wb") as downloaded_file:
+            downloaded_file.write(b"1" * 123)
+
+    yaHelper.y.check_token.return_value = True
+    yaHelper.y.download_by_link.side_effect = fake_download
+
+    assert yaHelper.downloadFile(
+        "https://example.test/file",
+        file_name,
+        file_path_on_disk=file_path_on_disk,
+    )
+    assert get_known_file_size(SimpleNamespace(path=file_path_on_disk)) == 123
+
+    if os.path.exists(local_file_path):
+        os.remove(local_file_path)
+
+    print("✅ test_download_file_saves_size_to_cache passed")
+
+
 if __name__ == "__main__":
     test_get_max_file_size_default()
     test_set_max_file_size()
     test_filter_files_by_size()
     test_filter_files_without_size()
     test_no_filter_when_max_is_none()
+    test_get_known_file_size_from_cache()
+    test_set_max_file_size_persists_in_cache_file()
+    test_download_file_saves_size_to_cache()
     print("\n✅ All size filter tests passed!")

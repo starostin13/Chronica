@@ -21,6 +21,7 @@ from yaHelper import (
     createFolderWithName,
     downloadFile,
     getLastUpdatedFolder,
+    get_known_file_size,
     saveFileTo,
     find_available_photos,
     remove_file_from_cache,
@@ -333,10 +334,13 @@ def try_send_small_image(chat_id, photo, comment, available_photos):
                 if any(marker in error_text for marker in size_error_markers):
                     bot.send_message(chat_id, f"Изображение слишком большое: {comment}")
                     # Сохраняем размер файла как максимальный
-                    if hasattr(photo, "size") and photo.size:
-                        set_max_file_size(photo.size)
+                    known_file_size = get_known_file_size(photo)
+                    if known_file_size:
+                        set_max_file_size(known_file_size)
                 else:
-                    bot.send_message(chat_id, f"Не удалось отправить изображение: {comment}")
+                    bot.send_message(
+                        chat_id, f"Не удалось отправить изображение: {comment}"
+                    )
         else:
             bot.send_message(chat_id, f"Формат HEIC не поддерживается: {comment}")
 
@@ -381,8 +385,9 @@ def try_send_video(chat_id, photo, comment, available_photos):
                 f"Видео слишком большое для отправки: {comment}",
             )
             # Сохраняем размер файла как максимальный
-            if hasattr(photo, "size") and photo.size:
-                set_max_file_size(photo.size)
+            known_file_size = get_known_file_size(photo)
+            if known_file_size:
+                set_max_file_size(known_file_size)
         else:
             bot.send_message(chat_id, f"Не удалось отправить видео: {comment}")
         available_photos.remove(photo)
