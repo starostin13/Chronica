@@ -160,7 +160,7 @@ def test_no_filter_when_max_is_none():
         else [
             f
             for f in files
-            if hasattr(f, "size") and f.size is not None and f.size <= max_size
+            if not hasattr(f, "size") or f.size is None or f.size <= max_size
         ]
     )
 
