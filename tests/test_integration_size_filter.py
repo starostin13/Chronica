@@ -74,8 +74,8 @@ def test_integration_filter_by_size():
         for f in all_files
         if max_size is None
         or (
-            yaHelper.get_known_file_size(f) is None
-            or yaHelper.get_known_file_size(f) <= max_size
+            (file_size := yaHelper.get_known_file_size(f)) is None
+            or file_size <= max_size
         )
     ]
     assert len(available) == 4
@@ -92,8 +92,8 @@ def test_integration_filter_by_size():
     available = [
         f
         for f in all_files
-        if yaHelper.get_known_file_size(f) is None
-        or yaHelper.get_known_file_size(f) <= max_size
+        if (file_size := yaHelper.get_known_file_size(f)) is None
+        or file_size <= max_size
     ]
     assert len(available) == 3
     assert available[0].name == "photo1.jpg"
@@ -112,8 +112,8 @@ def test_integration_filter_by_size():
     available = [
         f
         for f in all_files
-        if yaHelper.get_known_file_size(f) is None
-        or yaHelper.get_known_file_size(f) <= max_size
+        if (file_size := yaHelper.get_known_file_size(f)) is None
+        or file_size <= max_size
     ]
     assert len(available) == 2
     assert available[0].name == "photo1.jpg"
